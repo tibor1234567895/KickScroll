@@ -31,3 +31,6 @@ npm-debug.log*
 secrets/
 credentials/
 tokens/
+
+# Internal documentation
+AGENTS.md
