@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build & Distribution
+dist/
+build/
+*.zip
+*.crx
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/settings.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment variables (if ever needed)
+.env
+.env.local
+.env.*.local
+
+# Sensitive data (never commit)
+secrets/
+credentials/
+tokens/

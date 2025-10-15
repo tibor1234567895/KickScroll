@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Kick Stream Control",
+  "version": "1.0.2",
+  "description": "Control Kick.com streams with mouse buttons: left click toggles play/pause, right-click + scroll adjusts volume, and middle click toggles mute. Also displays volume percentage overlay.",
+  "icons": {
+    "48": "icons/kick_icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://kick.com/*"],
+      "js": ["content.js"],
+      "css": ["style.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "permissions": [
+      "storage"
+  ]
+}
