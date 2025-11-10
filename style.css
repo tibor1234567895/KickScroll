@@ -4,21 +4,36 @@ video.kickscroll-controlled {
 }
 
 /* Styles for the volume overlay on the video container */
+
 #volume-overlay {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.5);
-    color: white;
-    padding: 10px 20px;
-    border-radius: 5px;
-    font-size: 24px;
-    z-index: 9999;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  min-width: 120px;
+  max-width: 260px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.85);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  font-size: 14px;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 120ms ease;
 }
+#volume-overlay.show { opacity: 1; transform: translateX(-50%) scale(1.0); }
+#volume-overlay .kvw-icon { font-size: 18px; line-height: 1; }
+#volume-overlay .kvw-label { font-weight: 600; letter-spacing: .2px; }
+#volume-overlay .kvw-bar { position: relative; flex: 1 1 auto; height: 6px; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; min-width: 80px; }
+#volume-overlay .kvw-bar > span { position: absolute; inset: 0 100% 0 0; background: rgba(255,255,255,.95); }
+
 
 /* Styles for the playback speed overlay */
 #speed-overlay {

@@ -9,7 +9,21 @@
   "content_scripts": [
     {
       "matches": ["*://kick.com/*"],
-      "js": ["content.js"],
+      "js": [
+        "config.js",
+        "core.js",
+        "dom.js",
+        "audio.js",
+        "video.js",
+        "bitrate.js",
+        "ui-overlays.js",
+        "control-panel.js",
+        "controls-visibility.js",
+        "player-controls.js",
+        "safety.js",
+        "kvw.js",
+        "init.js"
+      ],
       "css": ["style.css"],
       "run_at": "document_end"
     }
