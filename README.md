@@ -1,15 +1,15 @@
 # KickScroll - Kick.com Stream Control Extension
 
-A powerful Chrome extension for enhanced control over Kick.com streams with audio processing, bitrate monitoring, and playback controls.
+Chrome extension for Kick.com that layers quick playback controls, Web Audio processing, and bitrate telemetry on top of the site player.
 
 ## Features
 
-### 🎮 Playback Controls
+### Playback Controls
 - **Left Click**: Toggle play/pause
 - **Right Click + Scroll**: Adjust volume with smooth control
 - **Middle Click**: Toggle mute
 
-### 🔊 Audio Enhancements
+### Audio Enhancements
 - **Volume Boost**: Increase audio output up to 20dB with safety limits
 - **Volume Normalization**: Automatic loudness normalization (LUFS-based)
   - Target loudness adjustment (-48dB to -10dB range)
@@ -19,18 +19,18 @@ A powerful Chrome extension for enhanced control over Kick.com streams with audi
   - Ratio (1:1 to 20:1)
   - Attack and release settings
 
-### 📊 Bitrate Monitoring
+### Bitrate Monitoring
 - Real-time bitrate display with quality indicators
 - Multiple display modes: Current, Average, Min/Max, Combined
 - Customizable units: Mbps, kbps, MBps, kBps
 - Adjustable refresh rates (250ms - 5000ms)
 - Overlay customization (opacity, text color)
 
-### ⚡ Playback Speed
+### Playback Speed
 - Speed adjustment with 0.25x - 2x range
 - Quick preset buttons for common speeds (0.5x, 0.75x, 1x, 1.25x, 1.5x, 2x)
 
-### 🎛️ Control Panel
+### Control Panel
 - Collapsible UI panel with auto-collapse functionality
 - Real-time value displays and feedback
 - Smooth overlay animations
@@ -46,7 +46,7 @@ A powerful Chrome extension for enhanced control over Kick.com streams with audi
 ### Build & Package
 ```bash
 mkdir -p dist
-zip -r dist/kickscroll.zip manifest.json content.js style.css icons/
+zip -r dist/kickscroll.zip manifest.json style.css icons *.js
 ```
 
 ## Usage
@@ -75,12 +75,19 @@ zip -r dist/kickscroll.zip manifest.json content.js style.css icons/
 
 ## Configuration
 
-Key tuning parameters in `content.js`:
+Key tuning parameters live in `config.js`:
 
 ```javascript
-const AUTO_COLLAPSE_DELAY = 1500;           // Panel auto-collapse time (ms)
-const DISABLE_EFFECT_SCALING = false;       // Set true to prevent effect weakening
-const DEBUG_LOGGING = true;                 // Enable/disable debug logs
+window.KickScrollConfig = {
+  constants: {
+    AUTO_COLLAPSE_DELAY: 1500,
+    DEBUG_LOGGING: true,
+    // …
+  },
+  playback: {
+    speedOptions: [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2]
+  }
+};
 ```
 
 ### Audio Settings
@@ -96,7 +103,7 @@ const DEBUG_LOGGING = true;                 // Enable/disable debug logs
 
 ## Storage
 
-Settings are automatically synced via Chrome's `storage.sync` API under the key `kickScrollSettings`. This allows settings to persist across tab reloads and sync across Chrome profiles.
+Settings are automatically synced via Chrome's `storage.sync` API under the key `kickScrollSettings`. This allows preferences to persist across reloads and sync across Chrome profiles.
 
 Data stored:
 - Volume boost settings
@@ -109,8 +116,10 @@ Data stored:
 ## Development
 
 ### Code Structure
-- `content.js`: Main runtime logic, event handlers, and audio processing
-- `manifest.json`: Extension configuration and permissions
+- `manifest.json`: Extension entry point
+- `core.js`: shared namespace, state, chrome.storage helpers
+- `audio.js`, `player-controls.js`, `bitrate.js`, etc.: feature modules registered under the `KickScroll` namespace
+- `config.js`: centralized knobs for logging, speeds, selector overrides, KVW behaviour
 - `style.css`: UI styling with scoped `.ks-` prefixes
 - `icons/`: Extension icon assets
 
@@ -125,7 +134,7 @@ Data stored:
 4. Check DevTools Console for any `[KickScroll]` errors
 
 ### Debugging
-Enable verbose logging by setting `DEBUG_LOGGING = true` in `content.js`. Logs appear in the target tab's DevTools Console with the `[KickScroll]` prefix.
+Enable verbose logging by flipping `DEBUG_LOGGING` in `config.js`. Logs appear in the target tab's DevTools Console with the `[KickScroll]` prefix.
 
 ## Safety Features
 
