@@ -46,7 +46,7 @@ Chrome extension for Kick.com that layers quick playback controls, Web Audio pro
 ### Build & Package
 ```bash
 mkdir -p dist
-zip -r dist/kickscroll.zip manifest.json style.css icons *.js
+zip -r dist/kickscroll.zip manifest.json style.css icons scripts
 ```
 
 ## Usage
@@ -75,7 +75,7 @@ zip -r dist/kickscroll.zip manifest.json style.css icons *.js
 
 ## Configuration
 
-Key tuning parameters live in `config.js`:
+Key tuning parameters live in `scripts/config.js`:
 
 ```javascript
 window.KickScrollConfig = {
@@ -117,9 +117,9 @@ Data stored:
 
 ### Code Structure
 - `manifest.json`: Extension entry point
-- `core.js`: shared namespace, state, chrome.storage helpers
-- `audio.js`, `player-controls.js`, `bitrate.js`, etc.: feature modules registered under the `KickScroll` namespace
-- `config.js`: centralized knobs for logging, speeds, selector overrides, KVW behaviour
+- `scripts/core.js`: shared namespace, state, chrome.storage helpers
+- `scripts/audio.js`, `scripts/player-controls.js`, `scripts/bitrate.js`, etc.: feature modules registered under the `KickScroll` namespace
+- `scripts/config.js`: centralized knobs for logging, speeds, selector overrides, KVW behaviour
 - `style.css`: UI styling with scoped `.ks-` prefixes
 - `icons/`: Extension icon assets
 
@@ -134,7 +134,7 @@ Data stored:
 4. Check DevTools Console for any `[KickScroll]` errors
 
 ### Debugging
-Enable verbose logging by flipping `DEBUG_LOGGING` in `config.js`. Logs appear in the target tab's DevTools Console with the `[KickScroll]` prefix.
+Enable verbose logging by flipping `DEBUG_LOGGING` in `scripts/config.js`. Logs appear in the target tab's DevTools Console with the `[KickScroll]` prefix.
 
 ## Safety Features
 

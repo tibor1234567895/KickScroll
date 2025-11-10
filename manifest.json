@@ -10,19 +10,19 @@
     {
       "matches": ["*://kick.com/*"],
       "js": [
-        "config.js",
-        "core.js",
-        "dom.js",
-        "audio.js",
-        "video.js",
-        "bitrate.js",
-        "ui-overlays.js",
-        "control-panel.js",
-        "controls-visibility.js",
-        "player-controls.js",
-        "safety.js",
-        "kvw.js",
-        "init.js"
+        "scripts/config.js",
+        "scripts/core.js",
+        "scripts/dom.js",
+        "scripts/audio.js",
+        "scripts/video.js",
+        "scripts/bitrate.js",
+        "scripts/ui-overlays.js",
+        "scripts/control-panel.js",
+        "scripts/controls-visibility.js",
+        "scripts/player-controls.js",
+        "scripts/safety.js",
+        "scripts/kvw.js",
+        "scripts/init.js"
       ],
       "css": ["style.css"],
       "run_at": "document_end"
