@@ -30,6 +30,11 @@
             }
 
             const bindVideo = () => {
+                // Ensure the player-controls script registered KS.attachListeners
+                if (!KS.attachListeners || typeof KS.attachListeners !== 'function') {
+                    setTimeout(bindVideo, 50);
+                    return;
+                }
                 KS.attachOverlayToVideo(video);
                 KS.attachListeners(video);
                 if (state.volumeNormalizationEnabled && state.loudnessNormalizer) {
@@ -105,7 +110,8 @@
             }, observerDebounceMs);
         });
 
-        state.observer.observe(document.body, {
+        const observerTarget = document.body || document.documentElement || document;
+        state.observer.observe(observerTarget, {
             childList: true,
             subtree: true,
             attributes: false,

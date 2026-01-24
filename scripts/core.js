@@ -136,11 +136,80 @@
 
     const state = KS.state;
 
+    // Inject a page-level script that overrides requestPictureInPicture in
+    // the page context (not the content-script isolated world) so we can
+    // suppress PiP requests triggered by site code when the extension
+    // synthesizes clicks. We toggle suppression by dispatching
+    // `kickscroll-suppress-pip-on` and `kickscroll-suppress-pip-off` events.
+    try {
+        // Insert a script tag whose src is the extension file, which runs in
+        // the page context and avoids inline-CSP issues.
+        const script = document.createElement('script');
+        script.setAttribute('type', 'text/javascript');
+        script.src = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL)
+            ? chrome.runtime.getURL('scripts/pip-inject.js')
+            : 'scripts/pip-inject.js';
+        (document.documentElement || document.head || document.body || document.documentElement).appendChild(script);
+        // Keep the script element for debugging; do not remove it immediately.
+        log.debug('[KS-PiP] Injected page-level PiP suppression script via src');
+    } catch (err) {
+        log.debug('[KS-PiP] Failed to inject page-level PiP suppression script via src:', err && err.message ? err.message : err);
+    }
+
     document.addEventListener('mouseup', (event) => {
         if (event.button === 2) {
             state.isRightMouseDown = false;
         }
     });
+
+    // Global capture handler to intercept clicks targeted to video region and
+    // ensure we handle play/pause toggles before page-level handlers trigger
+    // any PiP behavior. This runs at the document capture phase to preempt
+    // site handlers.
+    try {
+        // Known control selectors used by player UIs; clicks inside these
+        // should not toggle play/pause.
+        const controlSelectors = [
+            'button', 'input', '[role="button"]', '[role^="slider"]',
+            '.z-controls', '.controls', '.control-bar', '.player-controls', '.player__controls',
+            '.ytp-chrome-top', '.ytp-chrome-bottom', '.ks-control-panel', '.ks-control',
+            '[data-testid*="control"]', '[data-testid*="volume"]', '[data-testid*="settings"]',
+            '[data-testid*="more-options"]', '.volume', '.mute', '.settings', '.quality'
+        ];
+
+        const controlQuery = controlSelectors.join(',');
+        document.addEventListener('click', (event) => {
+            try {
+                // Skip processing if this click is part of a synthetic/fallback operation
+                if (KS._syntheticClickInProgress) {
+                    return;
+                }
+
+                if (event.button !== undefined && event.button !== 0) {
+                    return; // only intercept left-clicks
+                }
+                const video = KS.getVideoElement();
+                if (!video) return;
+                // Ignore clicks on our own panel or on native control elements
+                const target = event.target;
+                if (target.closest && target.closest('#kick-control-panel')) return;
+                if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.getAttribute('role') === 'button') return;
+                // If click is within the video element itself and not inside
+                // a control element, intercept.
+                if ((target === video || video.contains(target)) && !(target.closest && target.closest(controlQuery))) {
+                    KS._lastUserClick = Date.now();
+                    try { event.stopImmediatePropagation(); } catch (e) { }
+                    event.preventDefault();
+                    requestAnimationFrame(() => KS.togglePlayPause());
+                }
+            } catch (err) {
+                log.debug('[KS-PiP]', 'Global click interceptor error:', err && err.message ? err.message : err);
+            }
+        }, true);
+        log.debug('[KS-PiP]', 'Global click interceptor registered (capture)');
+    } catch (err) {
+        log.debug('[KS-PiP]', 'Failed to register global click interceptor (ignored):', err && err.message ? err.message : err);
+    }
 
     if (settings !== mergedSettings) {
         Object.entries(configDefaults).forEach(([key, value]) => {
