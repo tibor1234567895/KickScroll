@@ -19,11 +19,13 @@
             };
         }
     } catch (err) {
-        log.debug(PIP_LOG_TAG, 'Failed to wrap HTMLVideoElement.prototype.requestPictureInPicture:', err && err.message ? err.message : err);
+        log.warn(PIP_LOG_TAG, 'Failed to wrap HTMLVideoElement.prototype.requestPictureInPicture:', err && err.message ? err.message : err);
     }
 
     let lastPlayPauseClick = 0;
     let playPauseInProgress = false;
+    // Incremented on each togglePlayPause call to invalidate stale promise handlers
+    let currentActionToken = 0;
     // Flag to prevent click handlers from re-triggering togglePlayPause during
     // synthetic click operations (fallback clicks, native button clicks, etc.)
     KS._syntheticClickInProgress = false;
@@ -34,6 +36,7 @@
     const playPauseProgressWindow = typeof playerConfig.playPauseProgressWindowMs === 'number'
         ? playerConfig.playPauseProgressWindowMs
         : 600; // Increased from 500ms to allow fallback operations to complete
+    const pipSuppressionWindow = Math.max(playPauseProgressWindow, 500); // keep PiP suppression active through fallback window
     const playPauseSelectors = (Array.isArray(playerConfig.playPauseSelectors) && playerConfig.playPauseSelectors.length > 0)
         ? playerConfig.playPauseSelectors.slice()
         : [
@@ -48,6 +51,35 @@
             '[class*="play-button"]',
             '[class*="pause-button"]'
         ];
+
+    // Helper to find native play/pause button by SVG icon path
+    const findNativePlayPauseButton = () => {
+        // Look for buttons containing SVG with play icon path
+        const playIconPath = 'M8.4,3.2v25.9l20.4-13L8.4,3.2z';
+        const pauseIconPaths = ['M6,3.5v25h7.3v-25H6z', 'M18.7,3.5v25H26v-25H18.7z'];
+        
+        const buttons = document.querySelectorAll('button');
+        for (const button of buttons) {
+            const svg = button.querySelector('svg');
+            if (!svg) continue;
+            
+            const paths = svg.querySelectorAll('path');
+            for (const path of paths) {
+                const d = path.getAttribute('d');
+                if (d === playIconPath || pauseIconPaths.includes(d)) {
+                    return button;
+                }
+            }
+        }
+        
+        // Fallback: look for button with size-11 class near video
+        const sizeButton = document.querySelector('button.size-11');
+        if (sizeButton && sizeButton.querySelector('svg')) {
+            return sizeButton;
+        }
+        
+        return null;
+    };
 
     KS.togglePlayPause = function togglePlayPause() {
         const now = Date.now();
@@ -70,6 +102,8 @@
 
         lastPlayPauseClick = now;
         playPauseInProgress = true;
+        currentActionToken++;
+        const actionToken = currentActionToken;
 
         const video = KS.getVideoElement();
         if (!video) {
@@ -79,120 +113,70 @@
         }
 
         const wasPaused = video.paused;
-        const targetState = !wasPaused; // true = we want to pause, false = we want to play
-        log.debug(PIP_LOG_TAG, 'togglePlayPause called - wasPaused:', wasPaused, 'targetPaused:', targetState, 'document.pictureInPictureElement:', !!document.pictureInPictureElement);
+        log.debug(PIP_LOG_TAG, 'togglePlayPause called - wasPaused:', wasPaused, 'document.pictureInPictureElement:', !!document.pictureInPictureElement);
         log.info('Toggling playback - current state:', wasPaused ? 'PAUSED' : 'PLAYING');
 
         try {
-            if (wasPaused) {
-                log.debug('Attempting to play video...');
-                const playPromise = video.play();
-                if (playPromise && typeof playPromise.then === 'function') {
-                    playPromise
-                        .then(() => {
-                            log.info(PIP_LOG_TAG, '✓ Video playback started successfully');
-                            try {
-                                if (document.pictureInPictureElement) {
-                                    log.info(PIP_LOG_TAG, 'Picture-in-Picture detected after play() - attempting exit');
-                                    document.exitPictureInPicture()
-                                        .then(() => log.info(PIP_LOG_TAG, 'Exited Picture-in-Picture after play()'))
-                                        .catch((err) => log.warn(PIP_LOG_TAG, 'Failed to exit Picture-in-Picture:', err && err.message ? err.message : err));
-                                }
-                            } catch (error) {
-                                log.debug(PIP_LOG_TAG, 'PiP exit attempt failed (ignored):', error && error.message ? error.message : error);
-                            }
-                            playPauseInProgress = false;
-                        })
-                        .catch((error) => {
-                            if (error.name === 'AbortError' || error.message.includes('interrupted')) {
-                                log.debug('Play interrupted by native player - trying fallback');
-                            } else {
-                                log.warn('Direct play() failed:', error.message);
-                            }
-
-                            // Set flag to prevent click handlers from re-triggering during fallback
-                            KS._syntheticClickInProgress = true;
-
-                            // Fallback: try clicking native control buttons directly
-                            // Skip synthetic click on video element as it causes re-entry
-                            setTimeout(() => {
-                                try {
-                                    const currentVideo = KS.getVideoElement();
-                                    if (currentVideo && currentVideo.paused === wasPaused) {
-                                        // Video state hasn't changed, try native button
-                                        log.debug(PIP_LOG_TAG, 'Video still in original state, trying native button fallback');
-                                        try { document.dispatchEvent(new CustomEvent('kickscroll-suppress-pip-on')); } catch (e) { }
-
-                                        for (const selector of playPauseSelectors) {
-                                            const button = document.querySelector(selector);
-                                            if (button && button.offsetParent) {
-                                                try {
-                                                    button.click();
-                                                    log.info(PIP_LOG_TAG, '✓ Clicked native play/pause button (fallback):', selector);
-                                                    break;
-                                                } catch (btnErr) {
-                                                    log.debug('Failed to click button:', selector, btnErr.message);
-                                                }
-                                            }
-                                        }
-
-                                        setTimeout(() => {
-                                            try { document.dispatchEvent(new CustomEvent('kickscroll-suppress-pip-off')); } catch (e) { }
-                                        }, 350);
-                                    } else {
-                                        log.info(PIP_LOG_TAG, '✓ Video state changed during fallback wait');
-                                    }
-                                } catch (fallbackErr) {
-                                    log.error('Fallback click failed:', fallbackErr);
-                                } finally {
-                                    // Clear flag and progress state after a small delay
-                                    setTimeout(() => {
-                                        KS._syntheticClickInProgress = false;
-                                        playPauseInProgress = false;
-                                        log.debug(PIP_LOG_TAG, 'Fallback sequence complete - video.paused:', KS.getVideoElement()?.paused);
-                                    }, 100);
-                                }
-                            }, 50);
-                        });
-                } else {
-                    setTimeout(() => {
-                        if (video.paused === wasPaused) {
-                            log.debug('Play action needs verification, attempting click simulation');
-                            KS._syntheticClickInProgress = true;
-                            KS.tryClickSimulation();
-                            setTimeout(() => {
-                                KS._syntheticClickInProgress = false;
-                            }, 200);
-                        } else {
-                            log.info('✓ Video playback started (legacy method)');
-                        }
-                        playPauseInProgress = false;
-                    }, 50);
-                }
+            KS._suppressPiP = true;
+            
+            // Try to find and click native play/pause button first
+            const nativeButton = findNativePlayPauseButton();
+            if (nativeButton) {
+                log.debug(PIP_LOG_TAG, 'Found native play/pause button, clicking it');
+                nativeButton.click();
             } else {
-                log.debug('Attempting to pause video...');
-                video.pause();
-                setTimeout(() => {
-                    if (!video.paused) {
-                        log.debug('Pause may have been interrupted, attempting click simulation');
-                        KS._syntheticClickInProgress = true;
-                        KS.tryClickSimulation();
-                        setTimeout(() => {
-                            KS._syntheticClickInProgress = false;
-                        }, 200);
-                    } else {
-                        log.info('✓ Video paused successfully');
+                // Fallback to direct video API
+                log.debug(PIP_LOG_TAG, 'No native button found, using direct API');
+                if (wasPaused) {
+                    log.debug('Calling video.play()');
+                    const playPromise = video.play();
+                    if (playPromise && typeof playPromise.then === 'function') {
+                        playPromise.catch((err) => {
+                            log.debug('play() promise rejected:', err.name || err.message);
+                        });
                     }
-                    playPauseInProgress = false;
-                }, 50);
+                } else {
+                    log.debug('Calling video.pause()');
+                    video.pause();
+                }
             }
+            
+            // Verify and clean up after a short delay
+            setTimeout(() => {
+                if (actionToken !== currentActionToken) {
+                    return;
+                }
+                
+                const currentVideo = KS.getVideoElement();
+                const nowPaused = currentVideo && currentVideo.paused;
+                
+                // Check if state changed as expected
+                if (nowPaused !== wasPaused) {
+                    log.info('✓ Playback toggled successfully - now:', nowPaused ? 'PAUSED' : 'PLAYING');
+                } else {
+                    log.debug(PIP_LOG_TAG, 'State unchanged after toggle, retrying with direct API...');
+                    // One retry with direct API
+                    if (wasPaused && currentVideo) {
+                        currentVideo.play().catch(() => {});
+                    } else if (!wasPaused && currentVideo) {
+                        currentVideo.pause();
+                    }
+                }
+                
+                // Exit PiP if it opened
+                if (document.pictureInPictureElement) {
+                    log.debug(PIP_LOG_TAG, 'Exiting PiP that opened during toggle');
+                    document.exitPictureInPicture().catch(() => {});
+                }
+                
+                KS._suppressPiP = false;
+                playPauseInProgress = false;
+            }, 100);
+            
         } catch (error) {
             log.error('Exception in togglePlayPause:', error);
-            KS._syntheticClickInProgress = true;
-            KS.tryClickSimulation();
-            setTimeout(() => {
-                KS._syntheticClickInProgress = false;
-            }, 200);
+            KS._suppressPiP = false;
+            KS._syntheticClickInProgress = false;
             playPauseInProgress = false;
         }
     };
@@ -292,6 +276,8 @@
         if (video.muted) {
             video.muted = false;
             state.enforcingVolume = true;
+            // Show feedback immediately instead of waiting for the enforcement window
+            KS.showVolumeOverlay(state.lastVolume);
             const enforceVolume = () => {
                 if (!video.muted && Math.abs(video.volume - state.lastVolume) > 0.01) {
                     video.volume = state.lastVolume;
@@ -303,7 +289,7 @@
                 clearInterval(enforcementInterval);
                 state.enforcingVolume = false;
                 KS.showVolumeOverlay(state.lastVolume);
-            }, 500);
+            }, 125);
         } else {
             if (video.volume > 0) {
                 state.lastVolume = video.volume;
@@ -314,6 +300,16 @@
 
         settings.lastVolume = state.lastVolume;
         KS.saveSettings();
+    };
+
+    KS.resumeAudioContext = function resumeAudioContext() {
+        if (state.audioContext && state.audioContext.state === 'suspended') {
+            state.audioContext.resume().then(() => {
+                log.info('AudioContext resumed successfully');
+            }).catch(err => {
+                log.warn('Failed to resume AudioContext:', err);
+            });
+        }
     };
 
     KS.adjustVolume = function adjustVolume(event) {
@@ -348,6 +344,14 @@
         video.__customListenersAttached = true;
         log.debug(PIP_LOG_TAG, 'Attaching custom listeners to video', video && video.tagName, 'src', video && (video.currentSrc || video.src));
 
+        // Disable PiP completely to prevent native player from triggering it
+        try {
+            video.disablePictureInPicture = true;
+            log.debug(PIP_LOG_TAG, 'Disabled PiP on video element');
+        } catch (e) {
+            log.debug(PIP_LOG_TAG, 'Could not disable PiP:', e.message);
+        }
+
         video.classList.add('kickscroll-controlled');
         // Wrap requestPictureInPicture on the element to log callers and help
         // identify what's opening PiP when clicks happen.
@@ -360,7 +364,7 @@
                 };
             }
         } catch (err) {
-            log.debug(PIP_LOG_TAG, 'Failed to wrap requestPictureInPicture:', err && err.message ? err.message : err);
+            log.warn(PIP_LOG_TAG, 'Failed to wrap requestPictureInPicture:', err && err.message ? err.message : err);
         }
         video.style.pointerEvents = 'auto';
 
@@ -406,6 +410,7 @@
             // opening Picture-in-Picture or other handlers. Run in capture
             // phase and stop propagation to keep native click handlers out.
             try {
+                KS.resumeAudioContext();
                 event.stopImmediatePropagation();
                 log.debug(PIP_LOG_TAG, 'Stopped immediate propagation for click event');
             } catch (e) {
@@ -455,12 +460,17 @@
                 }
             }
         } catch (err) {
-            log.debug(PIP_LOG_TAG, 'Failed to wrap document.exitPictureInPicture:', err && err.message ? err.message : err);
+            log.warn(PIP_LOG_TAG, 'Failed to wrap document.exitPictureInPicture:', err && err.message ? err.message : err);
         }
 
         video.addEventListener('mousedown', (event) => {
             log.debug(PIP_LOG_TAG, 'mousedown - button:', event.button, 'target:', event.target && event.target.tagName);
-            if (event.button === 1) {
+            if (event.button === 0) {
+                // Left-click: stop propagation to prevent native player from
+                // receiving the event and toggling playback on its own
+                event.stopImmediatePropagation();
+                event.preventDefault();
+            } else if (event.button === 1) {
                 KS.toggleMute();
                 event.stopPropagation();
                 event.preventDefault();
@@ -469,28 +479,24 @@
                 event.stopPropagation();
                 event.preventDefault();
             }
-        });
+        }, true);
 
         video.addEventListener('mouseup', (event) => {
             log.debug(PIP_LOG_TAG, 'mouseup - button:', event.button, 'target:', event.target && event.target.tagName);
-            if (event.button === 2) {
+            if (event.button === 0) {
+                // Left-click: stop propagation to prevent native player handlers
+                event.stopImmediatePropagation();
+                event.preventDefault();
+            } else if (event.button === 2) {
                 state.isRightMouseDown = false;
                 event.stopPropagation();
                 event.preventDefault();
             }
-        });
+        }, true);
 
-        const resumeAudioContext = () => {
-            if (state.audioContext && state.audioContext.state === 'suspended') {
-                state.audioContext.resume().then(() => {
-                    log.info('AudioContext resumed on user gesture');
-                });
-            }
-        };
-
-        video.addEventListener('click', resumeAudioContext, { once: false });
-        video.addEventListener('mousedown', resumeAudioContext, { once: false });
-        video.addEventListener('wheel', resumeAudioContext, { once: false });
+        video.addEventListener('click', KS.resumeAudioContext, { once: false });
+        video.addEventListener('mousedown', KS.resumeAudioContext, { once: false });
+        video.addEventListener('wheel', KS.resumeAudioContext, { once: false });
 
         video.addEventListener('wheel', (event) => {
             if (state.isRightMouseDown) {

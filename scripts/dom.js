@@ -93,6 +93,9 @@
                         <span class="btn-icon">🎚️</span>
                         <span class="btn-text">OFF</span>
                     </button>
+                    <button class="control-btn toggle-btn small" id="ffz-mode-toggle">
+                        <span class="btn-text">FFZ</span>
+                    </button>
                 </div>
                 <div class="control-row">
                     <span class="control-label">Threshold:</span>
@@ -105,6 +108,12 @@
                     <button class="control-btn small-btn" id="ratio-up">+</button>
                     <span class="compressor-value" id="ratio-value"></span>
                     <button class="control-btn small-btn" id="ratio-down">-</button>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">FFZ Gain:</span>
+                    <button class="control-btn small-btn" id="ffz-gain-up">+</button>
+                    <span class="compressor-value" id="ffz-gain-value"></span>
+                    <button class="control-btn small-btn" id="ffz-gain-down">-</button>
                 </div>
             </div>
             
@@ -153,6 +162,26 @@
                     <button class="preset-btn" data-speed="1.25">1.25x</button>
                     <button class="preset-btn" data-speed="1.5">1.5x</button>
                     <button class="preset-btn" data-speed="2">2x</button>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">PiP Guard</div>
+                <div class="control-row">
+                    <button class="control-btn toggle-btn" id="pip-guard-toggle">
+                        <span class="btn-icon">PiP</span>
+                        <span class="btn-text">OFF</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Debug Logging</div>
+                <div class="control-row">
+                    <button class="control-btn toggle-btn" id="debug-toggle">
+                        <span class="btn-icon">🐞</span>
+                        <span class="btn-text">ON</span>
+                    </button>
                 </div>
             </div>
         </div>

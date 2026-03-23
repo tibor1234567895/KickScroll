@@ -15,11 +15,19 @@
         BITRATE_HISTORY_LIMIT_MSE: configConstants.BITRATE_HISTORY_LIMIT_MSE ?? 15
     };
 
+    const isDebugLoggingEnabled = () => {
+        const st = KS.state;
+        if (st && typeof st.debugLoggingEnabled === 'boolean') {
+            return st.debugLoggingEnabled;
+        }
+        return Boolean(constants.DEBUG_LOGGING);
+    };
+
     const log = KS.log = {
-        info: (...args) => constants.DEBUG_LOGGING && console.log(constants.LOG_PREFIX, ...args),
-        warn: (...args) => constants.DEBUG_LOGGING && console.warn(constants.LOG_PREFIX, ...args),
+        info: (...args) => isDebugLoggingEnabled() && console.log(constants.LOG_PREFIX, ...args),
+        warn: (...args) => isDebugLoggingEnabled() && console.warn(constants.LOG_PREFIX, ...args),
         error: (...args) => console.error(constants.LOG_PREFIX, ...args),
-        debug: (...args) => constants.DEBUG_LOGGING && console.log(constants.LOG_PREFIX, '[DEBUG]', ...args)
+        debug: (...args) => isDebugLoggingEnabled() && console.log(constants.LOG_PREFIX, '[DEBUG]', ...args)
     };
 
     const utils = KS.utils = {
@@ -42,18 +50,22 @@
         volumeBoostAmount: 6,
         volumeNormalizationEnabled: false,
         normalizationTargetLufs: -20,
-        compressorEnabled: false,
+        compressorEnabled: true,
+        ffzModeEnabled: false,
+        ffzGainEnabled: true,
+        ffzGainAmount: 1.6,
         compressorThreshold: -24,
         compressorRatio: 12,
         playbackSpeed: 1,
         lastVolume: 1,
-        bitrateMonitorEnabled: true,
-        bitrateOverlayVisible: true,
+        bitrateMonitorEnabled: false,
+        bitrateOverlayVisible: false,
         bitrateDisplayMode: 'current',
         bitrateUnit: 'Mbps',
         bitrateRefreshRate: 1000,
         bitrateOpacity: 0.85,
-        bitrateTextColor: '#00bcd4'
+        bitrateTextColor: '#00bcd4',
+        debugLoggingEnabled: configConstants.DEBUG_LOGGING ?? true
     };
 
     const mergedSettings = { ...defaultSettings, ...configDefaults };
@@ -73,10 +85,14 @@
         volumeNormalizationEnabled: settings.volumeNormalizationEnabled,
         normalizationTargetLufs: settings.normalizationTargetLufs,
         compressorEnabled: settings.compressorEnabled,
+        ffzModeEnabled: settings.ffzModeEnabled,
+        ffzGainEnabled: settings.ffzGainEnabled !== false,
+        ffzGainAmount: typeof settings.ffzGainAmount === 'number' ? settings.ffzGainAmount : 1.6,
         currentPlaybackRate: settings.playbackSpeed,
         loudnessNormalizer: null,
         audioContext: null,
         normalizationGainNode: null,
+        ffzGainNode: null,
         outputGainNode: null,
         sourceNode: null,
         analyzerNode: null,
@@ -87,10 +103,19 @@
         compressorKnee: configState.compressorKnee ?? 30,
         compressorAttack: configState.compressorAttack ?? 0.003,
         compressorRelease: configState.compressorRelease ?? 0.25,
+        ffzDefaults: configState.ffzDefaults || {
+            threshold: -50,
+            knee: 40,
+            ratio: 12,
+            attack: 0,
+            release: 0.25,
+            gain: 1.6
+        },
         controlsVisibilityObserver: null,
         controlsVisible: true,
         hideControlsTimeout: null,
         panelInitialized: false,
+        panelEventsBound: false,
         autoCollapseTimeout: null,
         isPanelCollapsed: true,
         panelToggleRef: null,
@@ -113,6 +138,7 @@
         bitrateRefreshRate: settings.bitrateRefreshRate,
         bitrateOpacity: settings.bitrateOpacity,
         bitrateTextColor: settings.bitrateTextColor,
+        debugLoggingEnabled: settings.debugLoggingEnabled,
         settingsLoadPromise: null,
         settingsLoaded: false,
         initStarted: false,
@@ -188,6 +214,12 @@
                 if (event.button !== undefined && event.button !== 0) {
                     return; // only intercept left-clicks
                 }
+
+                // Respect other high-priority UI (dialogs, menus, chat panes, forms)
+                if (event.target.closest && event.target.closest('[role="dialog"], [role="menu"], [aria-live], [data-testid*="chat"], [data-testid*="modal"], a, textarea, select, option, label')) {
+                    return;
+                }
+
                 const video = KS.getVideoElement();
                 if (!video) return;
                 // Ignore clicks on our own panel or on native control elements
@@ -231,7 +263,7 @@
             };
 
             if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.sync) {
-                log.debug('Chrome storage not available, using default settings');
+                log.info('Chrome storage not available, using default settings');
                 complete();
                 return;
             }
@@ -245,6 +277,11 @@
                             state.volumeBoostEnabled = settings.volumeBoostEnabled;
                             state.volumeBoostAmount = settings.volumeBoostAmount;
                             state.volumeNormalizationEnabled = settings.volumeNormalizationEnabled;
+                            state.ffzModeEnabled = settings.ffzModeEnabled === true;
+                            state.ffzGainEnabled = settings.ffzGainEnabled !== false;
+                            if (typeof settings.ffzGainAmount === 'number') {
+                                state.ffzGainAmount = utils.clamp(settings.ffzGainAmount, 0.5, 3);
+                            }
 
                             if (typeof settings.normalizationTargetLufs === 'number') {
                                 state.normalizationTargetLufs = utils.clamp(settings.normalizationTargetLufs, -48, -10);
@@ -273,13 +310,18 @@
                             state.bitrateRefreshRate = settings.bitrateRefreshRate || 1000;
                             state.bitrateOpacity = settings.bitrateOpacity !== undefined ? settings.bitrateOpacity : 0.85;
                             state.bitrateTextColor = settings.bitrateTextColor || '#00bcd4';
+                            state.debugLoggingEnabled = settings.debugLoggingEnabled !== false;
+                            settings.debugLoggingEnabled = state.debugLoggingEnabled;
+                            settings.ffzModeEnabled = state.ffzModeEnabled;
+                            settings.ffzGainEnabled = state.ffzGainEnabled;
+                            settings.ffzGainAmount = state.ffzGainAmount;
                         }
                     } finally {
                         complete();
                     }
                 });
             } catch (error) {
-                log.debug('Chrome storage not available, using default settings');
+                log.info('Chrome storage not available, using default settings');
                 complete();
             }
         });
@@ -293,8 +335,8 @@
         }
 
         state.saveSettingsTimeout = setTimeout(() => {
-            if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.sync) {
-                log.debug('Chrome storage not available, skipping save');
+            if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id || !chrome.storage || !chrome.storage.sync) {
+                log.debug('Chrome storage not available or context gone, skipping save');
                 state.saveSettingsTimeout = null;
                 return;
             }
@@ -307,6 +349,9 @@
                         volumeNormalizationEnabled: state.volumeNormalizationEnabled,
                         normalizationTargetLufs: state.normalizationTargetLufs,
                         compressorEnabled: state.compressorEnabled,
+                        ffzModeEnabled: state.ffzModeEnabled,
+                        ffzGainEnabled: state.ffzGainEnabled,
+                        ffzGainAmount: state.ffzGainAmount,
                         compressorThreshold: state.compressorThreshold,
                         compressorRatio: state.compressorRatio,
                         playbackSpeed: state.currentPlaybackRate,
@@ -317,12 +362,19 @@
                         bitrateUnit: state.bitrateUnit,
                         bitrateRefreshRate: state.bitrateRefreshRate,
                         bitrateOpacity: state.bitrateOpacity,
-                        bitrateTextColor: state.bitrateTextColor
+                        bitrateTextColor: state.bitrateTextColor,
+                        debugLoggingEnabled: state.debugLoggingEnabled
                     }
                 });
-                log.debug('Settings saved successfully');
+                log.info('Settings saved successfully');
             } catch (error) {
-                log.debug('Error saving settings:', error.message);
+                const message = error && error.message ? error.message : error;
+                const messageText = typeof message === 'string' ? message : String(message || '');
+                if (!chrome.runtime || !chrome.runtime.id || messageText.toLowerCase().includes('extension context invalidated')) {
+                    log.debug('Skipping save after context invalidation');
+                } else {
+                    log.warn('Error saving settings:', messageText);
+                }
             }
 
             state.saveSettingsTimeout = null;
@@ -335,8 +387,8 @@
             state.saveSettingsTimeout = null;
         }
 
-        if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.sync) {
-            log.debug('Chrome storage not available, skipping save');
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id || !chrome.storage || !chrome.storage.sync) {
+            log.debug('Chrome storage not available or context gone, skipping save');
             return;
         }
 
@@ -348,6 +400,9 @@
                     volumeNormalizationEnabled: state.volumeNormalizationEnabled,
                     normalizationTargetLufs: state.normalizationTargetLufs,
                     compressorEnabled: state.compressorEnabled,
+                    ffzModeEnabled: state.ffzModeEnabled,
+                    ffzGainEnabled: state.ffzGainEnabled,
+                    ffzGainAmount: state.ffzGainAmount,
                     compressorThreshold: state.compressorThreshold,
                     compressorRatio: state.compressorRatio,
                     playbackSpeed: state.currentPlaybackRate,
@@ -358,12 +413,19 @@
                     bitrateUnit: state.bitrateUnit,
                     bitrateRefreshRate: state.bitrateRefreshRate,
                     bitrateOpacity: state.bitrateOpacity,
-                    bitrateTextColor: state.bitrateTextColor
+                    bitrateTextColor: state.bitrateTextColor,
+                    debugLoggingEnabled: state.debugLoggingEnabled
                 }
             });
-            log.debug('Settings saved immediately');
+            log.info('Settings saved immediately');
         } catch (error) {
-            log.debug('Error saving settings:', error.message);
+            const message = error && error.message ? error.message : error;
+            const messageText = typeof message === 'string' ? message : String(message || '');
+            if (!chrome.runtime || !chrome.runtime.id || messageText.toLowerCase().includes('extension context invalidated')) {
+                log.debug('Skipping save after context invalidation');
+            } else {
+                log.warn('Error saving settings:', messageText);
+            }
         }
     };
 })();

@@ -2,6 +2,13 @@
     'use strict';
 
     try {
+        const host = window.location && window.location.hostname;
+        const allowedHost = host && (host === 'kick.com' || host.endsWith('.kick.com'));
+        if (!allowedHost) {
+            // Do not alter PiP on non-Kick hosts; loaded resource scope is already limited, this is a defense-in-depth guard.
+            return;
+        }
+
         // page-level suppression flag
         window.__KS_suppressPiP = window.__KS_suppressPiP || false;
 
@@ -11,7 +18,7 @@
             HTMLVideoElement.prototype.requestPictureInPicture = function () {
                 if (window.__KS_suppressPiP) {
                     console.info('[KS-PiP] Blocked requestPictureInPicture (page) - caller:', new Error().stack.split('\n')[2]?.trim());
-                    return Promise.resolve();
+                    return Promise.reject(new DOMException('KickScroll suppressed Picture-in-Picture', 'NotAllowedError'));
                 }
                 return originalReq.apply(this, arguments);
             };

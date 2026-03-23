@@ -54,17 +54,38 @@
             return;
         }
 
-        if (state.compressorEnabled) {
-            state.compressorNode.threshold.setValueAtTime(state.compressorThreshold, state.audioContext.currentTime);
-            state.compressorNode.ratio.setValueAtTime(state.compressorRatio, state.audioContext.currentTime);
-        } else {
-            state.compressorNode.threshold.setValueAtTime(0, state.audioContext.currentTime);
-            state.compressorNode.ratio.setValueAtTime(1, state.audioContext.currentTime);
-        }
+        state.compressorNode.threshold.setValueAtTime(state.compressorThreshold, state.audioContext.currentTime);
+        state.compressorNode.knee.setValueAtTime(state.compressorKnee, state.audioContext.currentTime);
+        state.compressorNode.ratio.setValueAtTime(state.compressorRatio, state.audioContext.currentTime);
+        state.compressorNode.attack.setValueAtTime(state.compressorAttack, state.audioContext.currentTime);
+        state.compressorNode.release.setValueAtTime(state.compressorRelease, state.audioContext.currentTime);
+        KS.updateAudioProcessing();
+    };
+
+    KS.applyFFZPreset = function applyFFZPreset() {
+        const defaults = state.ffzDefaults || {};
+        state.compressorEnabled = true;
+        state.compressorThreshold = defaults.threshold ?? -50;
+        state.compressorKnee = defaults.knee ?? 40;
+        state.compressorRatio = defaults.ratio ?? 12;
+        state.compressorAttack = defaults.attack ?? 0;
+        state.compressorRelease = defaults.release ?? 0.25;
+        state.ffzGainEnabled = true;
+        state.ffzGainAmount = defaults.gain ?? 1.6;
+
+        settings.compressorEnabled = state.compressorEnabled;
+        settings.compressorThreshold = state.compressorThreshold;
+        settings.compressorRatio = state.compressorRatio;
+        settings.ffzGainEnabled = state.ffzGainEnabled;
+        settings.ffzGainAmount = state.ffzGainAmount;
     };
 
     KS.toggleCompressor = function toggleCompressor() {
         state.compressorEnabled = !state.compressorEnabled;
+        if (!state.compressorEnabled) {
+            state.ffzModeEnabled = false;
+            settings.ffzModeEnabled = false;
+        }
         settings.compressorEnabled = state.compressorEnabled;
         KS.saveSettings();
         KS.updateCompressor();
@@ -77,6 +98,21 @@
         }
 
         KS.showTextOverlay(state.compressorEnabled ? 'Compressor ON' : 'Compressor OFF');
+    };
+
+    KS.toggleFFZMode = function toggleFFZMode() {
+        state.ffzModeEnabled = !state.ffzModeEnabled;
+        if (state.ffzModeEnabled) {
+            KS.applyFFZPreset();
+            state.volumeNormalizationEnabled = false;
+            settings.volumeNormalizationEnabled = false;
+        }
+
+        settings.ffzModeEnabled = state.ffzModeEnabled;
+        KS.saveSettings();
+        KS.updateCompressor();
+        KS.updateControlPanelState();
+        KS.showTextOverlay(state.ffzModeEnabled ? 'FFZ Mode ON' : 'FFZ Mode OFF');
     };
 
     KS.adjustCompressorThreshold = function adjustCompressorThreshold(direction) {
@@ -112,6 +148,25 @@
         KS.saveSettings();
         KS.updateCompressor();
         KS.showTextOverlay(`Ratio: ${state.compressorRatio}:1`);
+    };
+
+    KS.adjustFFZGain = function adjustFFZGain(direction) {
+        const step = 0.1;
+        const min = 0.5;
+        const max = 3;
+
+        if (direction === 'up') {
+            state.ffzGainAmount = Math.min(max, state.ffzGainAmount + step);
+        } else {
+            state.ffzGainAmount = Math.max(min, state.ffzGainAmount - step);
+        }
+
+        state.ffzGainAmount = Math.round(state.ffzGainAmount * 10) / 10;
+        settings.ffzGainAmount = state.ffzGainAmount;
+        KS.saveSettings();
+        KS.updateAudioProcessing();
+        KS.showTextOverlay(`FFZ Gain: ${state.ffzGainAmount.toFixed(1)}x`);
+        KS.updateControlPanelState();
     };
 
     const playbackConfig = (KS.config && KS.config.playback) || {};
@@ -199,6 +254,11 @@
     };
 
     KS.toggleVolumeNormalization = function toggleVolumeNormalization() {
+        if (!state.volumeNormalizationEnabled && state.ffzModeEnabled) {
+            KS.showTextOverlay('Disable FFZ Mode to use normalization');
+            return;
+        }
+
         state.volumeNormalizationEnabled = !state.volumeNormalizationEnabled;
         settings.volumeNormalizationEnabled = state.volumeNormalizationEnabled;
         KS.saveSettings();
@@ -224,10 +284,36 @@
         KS.updateControlPanelState();
     };
 
+    KS.toggleDebugLogging = function toggleDebugLogging() {
+        state.debugLoggingEnabled = !state.debugLoggingEnabled;
+        settings.debugLoggingEnabled = state.debugLoggingEnabled;
+        KS.saveSettings();
+        KS.updateControlPanelState();
+        KS.showTextOverlay(state.debugLoggingEnabled ? 'Debug logs ON' : 'Debug logs OFF');
+    };
+
+    KS.togglePiPGuard = function togglePiPGuard() {
+        state.pipGuardEnabled = !state.pipGuardEnabled;
+        settings.pipGuardEnabled = state.pipGuardEnabled;
+        KS.saveSettings();
+        if (!state.pipGuardEnabled) {
+            KS._suppressPiP = false;
+            try { document.dispatchEvent(new CustomEvent('kickscroll-suppress-pip-off')); } catch (e) { }
+        }
+        KS.updateControlPanelState();
+        KS.showTextOverlay(state.pipGuardEnabled ? 'PiP Guard ON' : 'PiP Guard OFF');
+    };
+
     KS.setupControlPanelEvents = function setupControlPanelEvents() {
         if (!controlPanel) {
             return;
         }
+
+        if (state.panelEventsBound) {
+            log.debug('Control panel events already bound; skipping rebind');
+            return;
+        }
+        state.panelEventsBound = true;
 
         const panelToggle = controlPanel.querySelector('#panel-toggle');
         const panelContent = controlPanel.querySelector('#panel-content');
@@ -240,7 +326,18 @@
         controlPanel.classList.add('collapsed');
         controlPanel.classList.remove('expanded');
 
-        const togglePanel = () => {
+        const togglePanel = (event) => {
+            log.debug('Panel toggle requested', {
+                target: event && event.target ? event.target.tagName : 'unknown',
+                isCollapsed: state.isPanelCollapsed,
+                hasPanel: !!controlPanel,
+                hasContent: !!panelContent,
+                hasToggle: !!panelToggle,
+                panelHidden: controlPanel.classList.contains('controls-hidden')
+            });
+            if (KS.cancelAutoCollapse) {
+                KS.cancelAutoCollapse();
+            }
             state.isPanelCollapsed = !state.isPanelCollapsed;
 
             if (state.isPanelCollapsed) {
@@ -248,15 +345,31 @@
                 controlPanel.classList.remove('expanded');
                 panelContent.style.display = 'none';
                 panelToggle.textContent = '▶';
+                log.debug('Panel collapsed');
             } else {
                 controlPanel.classList.remove('collapsed');
                 controlPanel.classList.add('expanded');
                 panelContent.style.display = 'block';
                 panelToggle.textContent = '▼';
+                log.debug('Panel expanded');
             }
         };
 
-        panelHeader.addEventListener('click', togglePanel);
+        panelHeader.addEventListener('click', (event) => {
+            log.debug('Panel header click', {
+                target: event && event.target ? event.target.tagName : 'unknown',
+                currentTarget: event && event.currentTarget ? event.currentTarget.tagName : 'unknown',
+                isCollapsed: state.isPanelCollapsed,
+                panelHidden: controlPanel.classList.contains('controls-hidden')
+            });
+            togglePanel(event);
+        });
+
+        controlPanel.addEventListener('click', () => {
+            if (KS.resumeAudioContext) {
+                KS.resumeAudioContext();
+            }
+        });
 
         controlPanel.addEventListener('mouseenter', () => {
             KS.cancelAutoCollapse();
@@ -302,9 +415,16 @@
         const thresholdDown = controlPanel.querySelector('#threshold-down');
         const ratioUp = controlPanel.querySelector('#ratio-up');
         const ratioDown = controlPanel.querySelector('#ratio-down');
+        const ffzModeToggle = controlPanel.querySelector('#ffz-mode-toggle');
+        const ffzGainUp = controlPanel.querySelector('#ffz-gain-up');
+        const ffzGainDown = controlPanel.querySelector('#ffz-gain-down');
 
         compressorToggle.addEventListener('click', () => {
             KS.toggleCompressor();
+        });
+
+        ffzModeToggle.addEventListener('click', () => {
+            KS.toggleFFZMode();
         });
 
         thresholdUp.addEventListener('click', () => {
@@ -325,6 +445,14 @@
         ratioDown.addEventListener('click', () => {
             KS.adjustCompressorRatio('down');
             KS.updateControlPanelState();
+        });
+
+        ffzGainUp.addEventListener('click', () => {
+            KS.adjustFFZGain('up');
+        });
+
+        ffzGainDown.addEventListener('click', () => {
+            KS.adjustFFZGain('down');
         });
 
         const speedUp = controlPanel.querySelector('#speed-up');
@@ -426,6 +554,22 @@
                 KS.showColorPicker();
             });
         }
+
+        const debugToggle = controlPanel.querySelector('#debug-toggle');
+
+        if (debugToggle) {
+            debugToggle.addEventListener('click', () => {
+                KS.toggleDebugLogging();
+            });
+        }
+
+        const pipGuardToggle = controlPanel.querySelector('#pip-guard-toggle');
+
+        if (pipGuardToggle) {
+            pipGuardToggle.addEventListener('click', () => {
+                KS.togglePiPGuard();
+            });
+        }
     };
 
     KS.updateControlPanelState = function updateControlPanelState() {
@@ -468,14 +612,23 @@
             compressorToggle.textContent = state.compressorEnabled ? 'ON' : 'OFF';
             compressorToggle.parentElement.classList.toggle('active', state.compressorEnabled);
         }
+        const ffzModeToggle = controlPanel.querySelector('#ffz-mode-toggle .btn-text');
+        if (ffzModeToggle) {
+            ffzModeToggle.textContent = state.ffzModeEnabled ? 'FFZ ON' : 'FFZ';
+            ffzModeToggle.parentElement.classList.toggle('active', state.ffzModeEnabled);
+        }
 
         const thresholdValue = controlPanel.querySelector('#threshold-value');
         const ratioValue = controlPanel.querySelector('#ratio-value');
+        const ffzGainValue = controlPanel.querySelector('#ffz-gain-value');
         if (thresholdValue) {
             thresholdValue.textContent = `${state.compressorThreshold}dB`;
         }
         if (ratioValue) {
             ratioValue.textContent = `${state.compressorRatio}:1`;
+        }
+        if (ffzGainValue) {
+            ffzGainValue.textContent = `${state.ffzGainAmount.toFixed(1)}x`;
         }
 
         const speedValue = controlPanel.querySelector('#speed-value');
@@ -526,6 +679,18 @@
         const opacityValue = controlPanel.querySelector('#opacity-value');
         if (opacityValue) {
             opacityValue.textContent = `${Math.round(state.bitrateOpacity * 100)}%`;
+        }
+
+        const debugToggle = controlPanel.querySelector('#debug-toggle .btn-text');
+        if (debugToggle) {
+            debugToggle.textContent = state.debugLoggingEnabled ? 'ON' : 'OFF';
+            debugToggle.parentElement.classList.toggle('active', state.debugLoggingEnabled);
+        }
+
+        const pipGuardToggle = controlPanel.querySelector('#pip-guard-toggle .btn-text');
+        if (pipGuardToggle) {
+            pipGuardToggle.textContent = state.pipGuardEnabled ? 'ON' : 'OFF';
+            pipGuardToggle.parentElement.classList.toggle('active', state.pipGuardEnabled);
         }
     };
 })();

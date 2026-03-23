@@ -200,6 +200,70 @@
 
     KS.LoudnessNormalizer = LoudnessNormalizer;
 
+    function safelyDisconnect(node, label) {
+        if (!node) {
+            return;
+        }
+        try {
+            node.disconnect();
+        } catch (error) {
+            log.debug(`Unable to disconnect ${label || 'audio node'}`, error);
+        }
+    }
+
+    function getActiveAudioChain() {
+        const chain = [];
+
+        if (state.ffzModeEnabled || state.compressorEnabled) {
+            chain.push(state.compressorNode);
+        }
+
+        if (!state.ffzModeEnabled && state.volumeNormalizationEnabled) {
+            chain.push(state.normalizationGainNode);
+        }
+
+        if (state.ffzModeEnabled && state.ffzGainEnabled) {
+            chain.push(state.ffzGainNode);
+        }
+
+        chain.push(state.outputGainNode);
+        return chain.filter(Boolean);
+    }
+
+    KS.rebuildAudioGraph = function rebuildAudioGraph() {
+        if (!state.sourceNode || !state.audioContext) {
+            return;
+        }
+
+        safelyDisconnect(state.sourceNode, 'source');
+        safelyDisconnect(state.analyzerNode, 'analyzer');
+        safelyDisconnect(state.compressorNode, 'compressor');
+        safelyDisconnect(state.normalizationGainNode, 'normalization gain');
+        safelyDisconnect(state.ffzGainNode, 'ffz gain');
+        safelyDisconnect(state.outputGainNode, 'output gain');
+
+        state.sourceNode.connect(state.analyzerNode);
+
+        const chain = getActiveAudioChain();
+        if (chain.length === 0) {
+            return;
+        }
+
+        let previousNode = state.sourceNode;
+        chain.forEach((node) => {
+            previousNode.connect(node);
+            previousNode = node;
+        });
+
+        previousNode.connect(state.audioContext.destination);
+        log.debug('Audio graph rebuilt', {
+            ffzModeEnabled: state.ffzModeEnabled,
+            compressorEnabled: state.compressorEnabled,
+            volumeNormalizationEnabled: state.volumeNormalizationEnabled,
+            ffzGainEnabled: state.ffzGainEnabled
+        });
+    };
+
     KS.setupAudioProcessing = function setupAudioProcessing(video) {
         try {
             const isNewVideo = state.currentVideo !== video;
@@ -208,11 +272,15 @@
                 state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
                 if (state.audioContext.state === 'suspended') {
-                    state.audioContext.resume();
+                    state.audioContext.resume().catch(() => {
+                        log.info('AudioContext resume deferred - waiting for user interaction');
+                    });
                 }
 
                 state.normalizationGainNode = state.audioContext.createGain();
                 state.normalizationGainNode.gain.value = 1;
+                state.ffzGainNode = state.audioContext.createGain();
+                state.ffzGainNode.gain.value = 1;
                 state.outputGainNode = state.audioContext.createGain();
                 state.outputGainNode.gain.value = 1;
                 state.analyzerNode = state.audioContext.createAnalyser();
@@ -254,13 +322,7 @@
 
                 video.volume = state.lastVolume;
                 video.muted = false;
-
-                state.sourceNode.connect(state.analyzerNode);
-                state.analyzerNode.connect(state.compressorNode);
-                state.compressorNode.connect(state.normalizationGainNode);
-                state.normalizationGainNode.connect(state.outputGainNode);
-                state.outputGainNode.connect(state.audioContext.destination);
-
+                KS.rebuildAudioGraph();
                 log.info('Audio graph connected to new video element');
             }
 
@@ -287,6 +349,18 @@
             return;
         }
 
+        if (state.ffzModeEnabled && state.volumeNormalizationEnabled) {
+            state.volumeNormalizationEnabled = false;
+            KS.settings.volumeNormalizationEnabled = false;
+        }
+
+        if (state.ffzGainNode) {
+            const ffzGainValue = state.ffzModeEnabled && state.ffzGainEnabled
+                ? clamp(state.ffzGainAmount, 0.5, 3)
+                : 1;
+            state.ffzGainNode.gain.setValueAtTime(ffzGainValue, state.audioContext.currentTime);
+        }
+
         let boostValue = 1;
 
         if (state.volumeBoostEnabled) {
@@ -302,11 +376,13 @@
 
         if (state.loudnessNormalizer) {
             state.loudnessNormalizer.setTarget(state.normalizationTargetLufs);
-            if (state.volumeNormalizationEnabled) {
+            if (state.volumeNormalizationEnabled && !state.ffzModeEnabled) {
                 state.loudnessNormalizer.enable();
             } else {
                 state.loudnessNormalizer.disable();
             }
         }
+
+        KS.rebuildAudioGraph();
     };
 })();

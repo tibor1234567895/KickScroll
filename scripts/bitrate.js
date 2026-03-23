@@ -93,7 +93,7 @@
                 window.fetch = state.originalFetch;
             }
         } catch (error) {
-            log.debug('Failed to restore window.fetch:', error.message);
+            log.warn('Failed to restore window.fetch:', error.message);
         }
         state.originalFetch = null;
         state.fetchInterceptorActive = false;
@@ -148,7 +148,7 @@
                 window.SourceBuffer.prototype.appendBuffer = state.originalAppendBuffer;
             }
         } catch (error) {
-            log.debug('Failed to restore SourceBuffer.appendBuffer:', error.message);
+            log.warn('Failed to restore SourceBuffer.appendBuffer:', error.message);
         }
         state.originalAppendBuffer = null;
         state.sourceBufferInterceptorActive = false;

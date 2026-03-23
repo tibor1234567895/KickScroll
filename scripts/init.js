@@ -6,6 +6,67 @@
     const retryDelayMs = typeof initConfig.retryDelayMs === 'number' ? initConfig.retryDelayMs : 500;
     const observerDebounceMs = typeof initConfig.observerDebounceMs === 'number' ? initConfig.observerDebounceMs : 100;
 
+    const setupVideo = (video) => {
+        if (!video) {
+            return;
+        }
+
+        const bindVideo = () => {
+            // Ensure the player-controls script registered KS.attachListeners
+            if (!KS.attachListeners || typeof KS.attachListeners !== 'function') {
+                setTimeout(bindVideo, 50);
+                return;
+            }
+            KS.attachOverlayToVideo(video);
+            KS.attachListeners(video);
+            if (state.volumeNormalizationEnabled && state.loudnessNormalizer) {
+                state.loudnessNormalizer.enable();
+            }
+            if (state.volumeBoostEnabled || state.volumeNormalizationEnabled || state.compressorEnabled) {
+                if (KS.startSafetyMonitor) {
+                    KS.startSafetyMonitor();
+                }
+            }
+        };
+
+        if (video.readyState >= 1) {
+            bindVideo();
+        } else {
+            video.addEventListener('loadedmetadata', bindVideo, { once: true });
+        }
+    };
+
+    const handleTabVisible = () => {
+        if (document.hidden) {
+            return;
+        }
+
+        const reattach = () => {
+            KS.attachBitrateOverlayToPage();
+            if (KS.updateBitrateOverlay) {
+                KS.updateBitrateOverlay();
+            }
+
+            const video = KS.getVideoElement();
+            if (video) {
+                setupVideo(video);
+                if (KS.updateControlPanelVisibility) {
+                    KS.updateControlPanelVisibility();
+                }
+                if (KS.dom && KS.dom.controlPanel && KS.dom.controlPanel.classList.contains('controls-hidden')) {
+                    KS.dom.controlPanel.classList.remove('controls-hidden');
+                    state.controlsVisible = true;
+                }
+            }
+        };
+
+        if (state.settingsLoaded) {
+            reattach();
+        } else {
+            KS.loadSettings().then(reattach);
+        }
+    };
+
     KS.init = async function init() {
         if (state.initStarted) {
             return;
@@ -16,43 +77,13 @@
             await KS.loadSettings();
         } catch (error) {
             const message = error && error.message ? error.message : error;
-            log.debug('Settings load encountered an error:', message);
+            log.warn('Settings load encountered an error:', message);
         }
 
         KS.attachBitrateOverlayToPage();
         if (KS.updateBitrateOverlay) {
             KS.updateBitrateOverlay();
         }
-
-        const setupVideo = (video) => {
-            if (!video) {
-                return;
-            }
-
-            const bindVideo = () => {
-                // Ensure the player-controls script registered KS.attachListeners
-                if (!KS.attachListeners || typeof KS.attachListeners !== 'function') {
-                    setTimeout(bindVideo, 50);
-                    return;
-                }
-                KS.attachOverlayToVideo(video);
-                KS.attachListeners(video);
-                if (state.volumeNormalizationEnabled && state.loudnessNormalizer) {
-                    state.loudnessNormalizer.enable();
-                }
-                if (state.volumeBoostEnabled || state.volumeNormalizationEnabled || state.compressorEnabled) {
-                    if (KS.startSafetyMonitor) {
-                        KS.startSafetyMonitor();
-                    }
-                }
-            };
-
-            if (video.readyState >= 1) {
-                bindVideo();
-            } else {
-                video.addEventListener('loadedmetadata', bindVideo, { once: true });
-            }
-        };
 
         const attemptVideoSetup = (retries = videoSetupRetries) => {
             const video = KS.getVideoElement();
@@ -77,6 +108,9 @@
     if (document.readyState !== 'complete') {
         window.addEventListener('load', KS.init);
     }
+
+    document.addEventListener('visibilitychange', handleTabVisible);
+    window.addEventListener('focus', handleTabVisible);
 
     window.addEventListener('beforeunload', () => {
         KS.saveSettingsImmediate();

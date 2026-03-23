@@ -17,24 +17,37 @@
             volumeBoostAmount: 6,
             volumeNormalizationEnabled: false,
             normalizationTargetLufs: -20,
-            compressorEnabled: false,
+            compressorEnabled: true,
+            ffzModeEnabled: false,
+            ffzGainEnabled: true,
+            ffzGainAmount: 1.6,
             compressorThreshold: -24,
             compressorRatio: 12,
             playbackSpeed: 1,
             lastVolume: 1,
-            bitrateMonitorEnabled: true,
-            bitrateOverlayVisible: true,
+            bitrateMonitorEnabled: false,
+            bitrateOverlayVisible: false,
             bitrateDisplayMode: 'current',
             bitrateUnit: 'Mbps',
             bitrateRefreshRate: 1000,
             bitrateOpacity: 0.85,
-            bitrateTextColor: '#00bcd4'
+            bitrateTextColor: '#00bcd4',
+            debugLoggingEnabled: false,
+            pipGuardEnabled: true
         },
         // Extra audio processor state that is not persisted in storage.
         state: {
             compressorKnee: 30,
             compressorAttack: 0.003,
-            compressorRelease: 0.25
+            compressorRelease: 0.25,
+            ffzDefaults: {
+                threshold: -50,
+                knee: 40,
+                ratio: 12,
+                attack: 0,
+                release: 0.25,
+                gain: 1.6
+            }
         },
         // Styling presets for overlays and picker menus.
         ui: {

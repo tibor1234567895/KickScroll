@@ -1,17 +1,29 @@
 (() => {
     const KS = window.KickScroll;
-    const { state, constants } = KS;
+    const { log, state, constants } = KS;
     const kvwConfig = (KS.config && KS.config.kvw) || {};
 
-    const KVW_DEBUG = kvwConfig.debug ?? constants.DEBUG_LOGGING;
+    const isKvwdDebugEnabled = () => {
+        const settingFlag = KS.state && typeof KS.state.debugLoggingEnabled === 'boolean'
+            ? KS.state.debugLoggingEnabled
+            : undefined;
+        const configFlag = kvwConfig.debug;
+        if (typeof settingFlag === 'boolean') {
+            return settingFlag;
+        }
+        if (typeof configFlag === 'boolean') {
+            return configFlag;
+        }
+        return Boolean(constants.DEBUG_LOGGING);
+    };
     const KVW_STEP = typeof kvwConfig.step === 'number' ? kvwConfig.step : 0.05;
     const KVW_ALLOW_OVER_VIDEO = Boolean(kvwConfig.allowWheelOverVideo);
     const KVW_HOVER_PAD_PX = typeof kvwConfig.hoverPaddingPx === 'number' ? kvwConfig.hoverPaddingPx : 10;
     const KVW_POINTER_SYNC = kvwConfig.pointerSync !== false;
 
     const klog = (...args) => {
-        if (KVW_DEBUG) {
-            console.debug('[KVW]', ...args);
+        if (isKvwdDebugEnabled()) {
+            log.debug('[KVW]', ...args);
         }
     };
     const clamp01 = (x) => Math.min(1, Math.max(0, x));

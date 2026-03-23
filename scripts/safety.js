@@ -58,6 +58,14 @@
         state.normalizationGainNode = null;
         state.outputGainNode = null;
         state.currentVideo = null;
+        if (state.observerTimeout) {
+            clearTimeout(state.observerTimeout);
+            state.observerTimeout = null;
+        }
+        if (state.observer) {
+            try { state.observer.disconnect(); } catch (e) { /* ignore */ }
+            state.observer = null;
+        }
         if (state.controlsVisibilityObserver) {
             state.controlsVisibilityObserver.disconnect();
         }
