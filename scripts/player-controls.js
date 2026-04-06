@@ -273,29 +273,61 @@
             return;
         }
 
-        if (video.muted) {
-            video.muted = false;
+        const emitVolumeSyncEvent = () => {
+            try {
+                video.dispatchEvent(new Event('volumechange'));
+            } catch (error) {
+                log.debug('Failed to dispatch volumechange sync event', error && error.message ? error.message : error);
+            }
+        };
+
+        const currentlyMuted = Boolean(state.extensionMuted || video.muted || video.defaultMuted);
+
+        if (currentlyMuted) {
             state.enforcingVolume = true;
-            // Show feedback immediately instead of waiting for the enforcement window
-            KS.showVolumeOverlay(state.lastVolume);
+            const targetVolume = Math.max(0, Math.min(1, typeof state.lastVolume === 'number' ? state.lastVolume : video.volume));
             const enforceVolume = () => {
-                if (!video.muted && Math.abs(video.volume - state.lastVolume) > 0.01) {
-                    video.volume = state.lastVolume;
+                if (Math.abs(video.volume - targetVolume) > 0.01) {
+                    video.volume = targetVolume;
                 }
             };
+
+            state.extensionMuted = false;
+            video.defaultMuted = false;
+            video.muted = false;
+            enforceVolume();
+
+            if (KS.syncNativeSliderTo) {
+                KS.syncNativeSliderTo(targetVolume * 100);
+            }
+            emitVolumeSyncEvent();
+
+            // Show feedback immediately instead of waiting for the enforcement window
+            KS.showVolumeOverlay(targetVolume);
             enforceVolume();
             const enforcementInterval = setInterval(enforceVolume, 50);
             setTimeout(() => {
                 clearInterval(enforcementInterval);
                 state.enforcingVolume = false;
-                KS.showVolumeOverlay(state.lastVolume);
+                KS.showVolumeOverlay(targetVolume);
             }, 125);
         } else {
             if (video.volume > 0) {
                 state.lastVolume = video.volume;
             }
+            state.extensionMuted = true;
+            state.enforcingVolume = true;
+            video.volume = 0;
+            video.defaultMuted = true;
             video.muted = true;
+            if (KS.syncNativeSliderTo) {
+                KS.syncNativeSliderTo(0);
+            }
+            emitVolumeSyncEvent();
             KS.showVolumeOverlay('Muted');
+            setTimeout(() => {
+                state.enforcingVolume = false;
+            }, 125);
         }
 
         settings.lastVolume = state.lastVolume;
@@ -318,11 +350,17 @@
             return;
         }
 
-        let adjustment = -event.deltaY / 3300;
-        let newVolume = video.volume + adjustment;
+        const direction = event.deltaY < 0 ? 1 : (event.deltaY > 0 ? -1 : 0);
+        if (direction === 0) {
+            return;
+        }
+
+        const volumeStep = typeof state.volumeScrollStep === 'number' ? state.volumeScrollStep : 0.05;
+        let newVolume = video.volume + (direction * volumeStep);
         newVolume = Math.min(1, Math.max(0, newVolume));
         video.volume = newVolume;
         if (newVolume > 0) {
+            state.extensionMuted = false;
             state.lastVolume = newVolume;
             settings.lastVolume = state.lastVolume;
             KS.saveSettings();
@@ -369,7 +407,17 @@
         video.style.pointerEvents = 'auto';
 
         video.addEventListener('volumechange', () => {
-            if (!video.muted && video.volume > 0 && !state.enforcingVolume) {
+            if (state.enforcingVolume) {
+                return;
+            }
+
+            if (video.muted || video.defaultMuted) {
+                state.extensionMuted = true;
+                return;
+            }
+
+            state.extensionMuted = false;
+            if (video.volume > 0) {
                 state.lastVolume = video.volume;
                 settings.lastVolume = state.lastVolume;
                 KS.saveSettings();
@@ -472,11 +520,11 @@
                 event.preventDefault();
             } else if (event.button === 1) {
                 KS.toggleMute();
-                event.stopPropagation();
+                event.stopImmediatePropagation();
                 event.preventDefault();
             } else if (event.button === 2) {
                 state.isRightMouseDown = true;
-                event.stopPropagation();
+                event.stopImmediatePropagation();
                 event.preventDefault();
             }
         }, true);
@@ -487,9 +535,20 @@
                 // Left-click: stop propagation to prevent native player handlers
                 event.stopImmediatePropagation();
                 event.preventDefault();
+            } else if (event.button === 1) {
+                event.stopImmediatePropagation();
+                event.preventDefault();
             } else if (event.button === 2) {
                 state.isRightMouseDown = false;
-                event.stopPropagation();
+                event.stopImmediatePropagation();
+                event.preventDefault();
+            }
+        }, true);
+
+        video.addEventListener('auxclick', (event) => {
+            if (event.button === 1 || event.button === 2) {
+                log.debug(PIP_LOG_TAG, 'auxclick suppressed - button:', event.button, 'target:', event.target && event.target.tagName);
+                event.stopImmediatePropagation();
                 event.preventDefault();
             }
         }, true);

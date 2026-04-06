@@ -67,6 +67,12 @@
                         <button class="control-btn small-btn" id="boost-down">-</button>
                     </div>
                 </div>
+                <div class="control-row">
+                    <span class="control-label">Wheel Step:</span>
+                    <button class="control-btn small-btn" id="volume-step-up">+</button>
+                    <span class="inline-value" id="volume-step-value">5%</span>
+                    <button class="control-btn small-btn" id="volume-step-down">-</button>
+                </div>
             </div>
             
             <div class="control-section">

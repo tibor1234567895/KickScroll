@@ -15,6 +15,7 @@
         defaults: {
             volumeBoostEnabled: false,
             volumeBoostAmount: 6,
+            volumeScrollStep: 0.05,
             volumeNormalizationEnabled: false,
             normalizationTargetLufs: -20,
             compressorEnabled: true,

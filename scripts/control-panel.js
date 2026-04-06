@@ -253,6 +253,24 @@
         KS.showTextOverlay(`Boost: +${state.volumeBoostAmount}dB`);
     };
 
+    KS.adjustVolumeScrollStep = function adjustVolumeScrollStep(direction) {
+        const step = 0.01;
+        const min = 0.01;
+        const max = 0.25;
+
+        if (direction === 'up') {
+            state.volumeScrollStep = Math.min(max, state.volumeScrollStep + step);
+        } else {
+            state.volumeScrollStep = Math.max(min, state.volumeScrollStep - step);
+        }
+
+        state.volumeScrollStep = Math.round(state.volumeScrollStep * 100) / 100;
+        settings.volumeScrollStep = state.volumeScrollStep;
+        KS.saveSettings();
+        KS.showTextOverlay(`Wheel step: ${Math.round(state.volumeScrollStep * 100)}%`);
+        KS.updateControlPanelState();
+    };
+
     KS.toggleVolumeNormalization = function toggleVolumeNormalization() {
         if (!state.volumeNormalizationEnabled && state.ffzModeEnabled) {
             KS.showTextOverlay('Disable FFZ Mode to use normalization');
@@ -393,6 +411,21 @@
             KS.adjustVolumeBoost('down');
             KS.updateControlPanelState();
         });
+
+        const volumeStepUp = controlPanel.querySelector('#volume-step-up');
+        const volumeStepDown = controlPanel.querySelector('#volume-step-down');
+
+        if (volumeStepUp) {
+            volumeStepUp.addEventListener('click', () => {
+                KS.adjustVolumeScrollStep('up');
+            });
+        }
+
+        if (volumeStepDown) {
+            volumeStepDown.addEventListener('click', () => {
+                KS.adjustVolumeScrollStep('down');
+            });
+        }
 
         const normalizeToggle = controlPanel.querySelector('#normalize-toggle');
         const targetUp = controlPanel.querySelector('#target-up');
@@ -585,6 +618,10 @@
         }
         if (boostValue) {
             boostValue.textContent = `${state.volumeBoostAmount}dB`;
+        }
+        const volumeStepValue = controlPanel.querySelector('#volume-step-value');
+        if (volumeStepValue) {
+            volumeStepValue.textContent = `${Math.round(state.volumeScrollStep * 100)}%`;
         }
 
         const normalizeToggle = controlPanel.querySelector('#normalize-toggle .btn-text');

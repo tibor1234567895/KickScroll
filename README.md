@@ -7,6 +7,7 @@ Chrome extension for Kick.com that layers quick playback controls, Web Audio pro
 ### Playback Controls
 - **Left Click**: Toggle play/pause
 - **Right Click + Scroll**: Adjust volume with smooth control
+- **Custom Wheel Step**: Tune how much each right-click scroll tick changes the volume
 - **Middle Click**: Toggle mute
 
 ### Audio Enhancements
@@ -54,6 +55,7 @@ zip -r dist/kickscroll.zip manifest.json style.css icons scripts
 ### Basic Controls
 - **Left Click**: Play/Pause
 - **Right Click + Mouse Wheel**: Volume adjustment
+- Use the control panel's `Wheel Step` controls to choose how much each scroll tick changes volume
 - **Middle Click**: Mute/Unmute
 
 ### Control Panel
@@ -92,6 +94,7 @@ window.KickScrollConfig = {
 
 ### Audio Settings
 - `volumeBoostAmount`: 0-20 dB (default 6)
+- `volumeScrollStep`: 0.01-0.25 per wheel tick (default 0.05, or 5%)
 - `normalizationTargetLufs`: -48 to -10 LUFS (default -20)
 - `compressorThreshold`: -50 to 0 dB (default -24)
 - `compressorRatio`: 1 to 20 (default 12)

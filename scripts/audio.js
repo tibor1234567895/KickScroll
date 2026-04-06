@@ -230,6 +230,43 @@
         return chain.filter(Boolean);
     }
 
+    KS.syncVideoVolumeState = function syncVideoVolumeState(video, options = {}) {
+        if (!video) {
+            return;
+        }
+
+        const shouldRestoreVolume = options.restoreVolume !== false;
+        const shouldForceUnmute = options.forceUnmute !== false;
+        const desiredVolume = clamp(typeof state.lastVolume === 'number' ? state.lastVolume : 1, 0, 1);
+
+        if (shouldRestoreVolume && Math.abs(video.volume - desiredVolume) > 0.001) {
+            video.volume = desiredVolume;
+        }
+
+        if (shouldForceUnmute && desiredVolume > 0 && (video.muted || video.defaultMuted)) {
+            video.defaultMuted = false;
+            video.muted = false;
+            log.debug('Restored video mute state during startup sync');
+        }
+    };
+
+    KS.ensureStartupAudioState = function ensureStartupAudioState(video) {
+        if (!video || video.__ksStartupAudioSyncScheduled) {
+            return;
+        }
+
+        video.__ksStartupAudioSyncScheduled = true;
+
+        [0, 150, 500, 1200].forEach(delay => {
+            setTimeout(() => {
+                if (!video.isConnected) {
+                    return;
+                }
+                KS.syncVideoVolumeState(video);
+            }, delay);
+        });
+    };
+
     KS.rebuildAudioGraph = function rebuildAudioGraph() {
         if (!state.sourceNode || !state.audioContext) {
             return;
@@ -320,8 +357,8 @@
                 state.sourceNode = state.audioContext.createMediaElementSource(video);
                 state.currentVideo = video;
 
-                video.volume = state.lastVolume;
-                video.muted = false;
+                KS.syncVideoVolumeState(video);
+                KS.ensureStartupAudioState(video);
                 KS.rebuildAudioGraph();
                 log.info('Audio graph connected to new video element');
             }

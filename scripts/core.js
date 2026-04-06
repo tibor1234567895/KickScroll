@@ -48,6 +48,7 @@
     const defaultSettings = {
         volumeBoostEnabled: false,
         volumeBoostAmount: 6,
+        volumeScrollStep: typeof ((config.kvw || {}).step) === 'number' ? utils.clamp(config.kvw.step, 0.01, 0.25) : 0.05,
         volumeNormalizationEnabled: false,
         normalizationTargetLufs: -20,
         compressorEnabled: true,
@@ -76,12 +77,16 @@
     const configState = config.state || {};
     const defaultState = {
         isRightMouseDown: false,
+        extensionMuted: false,
+        pendingNativeSliderPct: null,
+        nativeSliderSyncInProgress: false,
         volumeOverlayTimeout: null,
         speedOverlayTimeout: null,
         lastVolume: settings.lastVolume,
         enforcingVolume: false,
         volumeBoostEnabled: settings.volumeBoostEnabled,
         volumeBoostAmount: settings.volumeBoostAmount,
+        volumeScrollStep: settings.volumeScrollStep,
         volumeNormalizationEnabled: settings.volumeNormalizationEnabled,
         normalizationTargetLufs: settings.normalizationTargetLufs,
         compressorEnabled: settings.compressorEnabled,
@@ -276,6 +281,10 @@
 
                             state.volumeBoostEnabled = settings.volumeBoostEnabled;
                             state.volumeBoostAmount = settings.volumeBoostAmount;
+                            if (typeof settings.volumeScrollStep === 'number') {
+                                state.volumeScrollStep = utils.clamp(settings.volumeScrollStep, 0.01, 0.25);
+                            }
+                            settings.volumeScrollStep = state.volumeScrollStep;
                             state.volumeNormalizationEnabled = settings.volumeNormalizationEnabled;
                             state.ffzModeEnabled = settings.ffzModeEnabled === true;
                             state.ffzGainEnabled = settings.ffzGainEnabled !== false;
@@ -346,6 +355,7 @@
                     kickScrollSettings: {
                         volumeBoostEnabled: state.volumeBoostEnabled,
                         volumeBoostAmount: state.volumeBoostAmount,
+                        volumeScrollStep: state.volumeScrollStep,
                         volumeNormalizationEnabled: state.volumeNormalizationEnabled,
                         normalizationTargetLufs: state.normalizationTargetLufs,
                         compressorEnabled: state.compressorEnabled,
@@ -397,6 +407,7 @@
                 kickScrollSettings: {
                     volumeBoostEnabled: state.volumeBoostEnabled,
                     volumeBoostAmount: state.volumeBoostAmount,
+                    volumeScrollStep: state.volumeScrollStep,
                     volumeNormalizationEnabled: state.volumeNormalizationEnabled,
                     normalizationTargetLufs: state.normalizationTargetLufs,
                     compressorEnabled: state.compressorEnabled,

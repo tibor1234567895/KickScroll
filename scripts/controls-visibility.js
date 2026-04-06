@@ -74,6 +74,11 @@
             }
             state.controlsVisible = true;
             panel.classList.remove('controls-hidden');
+            requestAnimationFrame(() => {
+                if (typeof KS.refreshNativeSliderSync === 'function') {
+                    KS.refreshNativeSliderSync();
+                }
+            });
         };
 
         const hideControlsAfterDelay = (delay = 300) => {

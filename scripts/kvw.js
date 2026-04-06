@@ -97,38 +97,79 @@
         return r.width > 0 && r.height > 0;
     }
 
-    KS.syncNativeSliderTo = function syncNativeSliderTo(targetPct) {
-        if (!KVW_POINTER_SYNC) {
+    function storePendingSliderPct(targetPct) {
+        state.pendingNativeSliderPct = Math.max(0, Math.min(100, targetPct));
+    }
+
+    function clearPendingSliderPct() {
+        state.pendingNativeSliderPct = null;
+    }
+
+    KS.refreshNativeSliderSync = function refreshNativeSliderSync() {
+        if (state.nativeSliderSyncInProgress) {
             return;
         }
+
+        if (typeof state.pendingNativeSliderPct !== 'number') {
+            return;
+        }
+
+        const info = getTrackInfo();
+        if (!info || !isVisible(info.track)) {
+            return;
+        }
+
+        const targetPct = state.pendingNativeSliderPct;
+        clearPendingSliderPct();
+        KS.syncNativeSliderTo(targetPct);
+    };
+
+    KS.syncNativeSliderTo = function syncNativeSliderTo(targetPct) {
+        if (!KVW_POINTER_SYNC) {
+            clearPendingSliderPct();
+            return;
+        }
+        const pct = Math.max(0, Math.min(100, targetPct));
         const info = getTrackInfo();
         if (!info) {
+            storePendingSliderPct(pct);
             klog('No slider track found (controls may be hidden)');
             return;
         }
         const { track, rect } = info;
         if (!isVisible(track)) {
+            storePendingSliderPct(pct);
             klog('Slider track not visible (controls hidden)');
             const thumb = qThumb();
             if (thumb) {
-                thumb.setAttribute('aria-valuenow', String(Math.round(targetPct)));
+                thumb.setAttribute('aria-valuenow', String(Math.round(pct)));
             }
             return;
         }
-        const pct = Math.max(0, Math.min(100, targetPct));
+
+        clearPendingSliderPct();
         const x = rect.left + rect.width * (pct / 100);
         const y = rect.top + rect.height / 2;
         klog('Pointer-sync', { pct: Math.round(pct), x: Math.round(x), y: Math.round(y) });
-        firePointerAndMouse(track, 'pointerdown', x, y);
-        firePointerAndMouse(track, 'pointermove', x, y);
-        firePointerAndMouse(track, 'pointerup', x, y);
-        const thumb = qThumb();
-        if (thumb) {
-            thumb.setAttribute('aria-valuenow', String(Math.round(pct)));
+        state.nativeSliderSyncInProgress = true;
+        try {
+            firePointerAndMouse(track, 'pointerdown', x, y);
+            firePointerAndMouse(track, 'pointermove', x, y);
+            firePointerAndMouse(track, 'pointerup', x, y);
+            const thumb = qThumb();
+            if (thumb) {
+                thumb.setAttribute('aria-valuenow', String(Math.round(pct)));
+            }
+        } finally {
+            state.nativeSliderSyncInProgress = false;
         }
     };
 
     function onGlobalWheel(event) {
+        if (!event.isTrusted) {
+            return;
+        }
+
         if (state.isRightMouseDown) {
             return;
         }
@@ -161,7 +202,12 @@
             return;
         }
 
-        const dir = (event.deltaY ?? 0) < 0 ? 1 : -1;
+        const deltaY = event.deltaY ?? 0;
+        if (deltaY === 0) {
+            return;
+        }
+
+        const dir = deltaY < 0 ? 1 : -1;
         const newVol = clamp01(video.volume + dir * KVW_STEP);
         const oldVol = video.volume;
         video.volume = newVol;
@@ -201,7 +247,7 @@
                     }
 
                     volumeChangeTimeout = setTimeout(() => {
-                        if (state.isRightMouseDown) {
+                        if (state.isRightMouseDown || state.extensionMuted) {
                             return;
                         }
 
@@ -228,6 +274,12 @@
         window.__KVW_wheelAttached = true;
         window.addEventListener('wheel', onGlobalWheel, { capture: true, passive: false });
         window.addEventListener('mousewheel', onGlobalWheel, { capture: true, passive: false });
+        window.addEventListener('mousemove', (event) => {
+            if (!event.isTrusted || state.nativeSliderSyncInProgress) {
+                return;
+            }
+            KS.refreshNativeSliderSync();
+        }, { passive: true });
         klog('KVW listeners attached (capture:true, passive:false)');
 
         KS.setupNativeSliderMonitor();
