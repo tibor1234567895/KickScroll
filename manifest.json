@@ -8,7 +8,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://kick.com/*"],
+      "matches": ["*://kick.com/*", "*://*.kick.com/*"],
       "js": [
         "scripts/config.js",
         "scripts/core.js",
@@ -28,6 +28,13 @@
       "run_at": "document_start"
     }
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/dashboard.html",
+    "default_title": "KickScroll Userscripts"
+  },
   "web_accessible_resources": [
     {
       "resources": ["scripts/pip-inject.js"],
@@ -35,6 +42,11 @@
     }
   ],
   "permissions": [
-      "storage"
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://kick.com/*",
+    "*://*.kick.com/*"
   ]
 }
