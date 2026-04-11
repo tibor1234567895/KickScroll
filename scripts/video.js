@@ -48,8 +48,8 @@
         KS.attachBitrateOverlayToPage();
 
         if (!video.parentElement.querySelector('#kick-control-panel')) {
-            video.parentElement.appendChild(dom.controlPanel);
-            log.info('Control panel attached to video container');
+            document.body.appendChild(dom.controlPanel);
+            log.info('Control panel attached to body');
 
             dom.controlPanel.classList.add('controls-hidden');
             state.controlsVisible = false;

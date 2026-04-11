@@ -175,35 +175,23 @@
         : [0.25, 0.5, 0.75, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
     KS.changePlaybackSpeed = function changePlaybackSpeed(direction) {
+        let newIndex = 1;
         const video = KS.getVideoElement();
-        if (!video) {
-            return;
-        }
+        if (!video) return;
 
-        const currentIndex = speedOptions.indexOf(state.currentPlaybackRate);
-        const defaultIndex = speedOptions.indexOf(1) !== -1 ? speedOptions.indexOf(1) : 0;
-        let newIndex;
+        state.currentPlaybackRate = parseFloat(direction) || 1.0; 
 
-        if (direction === 'up') {
-            newIndex = Math.min(speedOptions.length - 1, currentIndex + 1);
-        } else if (direction === 'down') {
-            newIndex = Math.max(0, currentIndex - 1);
-        } else {
-            newIndex = defaultIndex;
-        }
-
-        if (currentIndex === -1) {
-            newIndex = direction === 'down'
-                ? Math.max(0, defaultIndex - 1)
-                : defaultIndex;
-        }
-
-        state.currentPlaybackRate = speedOptions[newIndex];
         video.playbackRate = state.currentPlaybackRate;
         settings.playbackSpeed = state.currentPlaybackRate;
         KS.saveSettings();
         KS.showSpeedOverlay(state.currentPlaybackRate);
-        KS.updateControlPanelState();
+        
+        if (controlPanel) {
+            const speedBtns = controlPanel.querySelectorAll('.ks-speed-btn');
+            speedBtns.forEach(btn => {
+                btn.classList.toggle('active', parseFloat(btn.dataset.speed) === state.currentPlaybackRate);
+            });
+        }
     };
 
     KS.setPlaybackSpeed = function setPlaybackSpeed(speed) {
@@ -335,7 +323,6 @@
 
         const panelToggle = controlPanel.querySelector('#panel-toggle');
         const panelContent = controlPanel.querySelector('#panel-content');
-        const panelHeader = controlPanel.querySelector('.control-panel-header');
 
         state.panelToggleRef = panelToggle;
         state.panelContentRef = panelContent;
@@ -344,43 +331,37 @@
         controlPanel.classList.add('collapsed');
         controlPanel.classList.remove('expanded');
 
-        const togglePanel = (event) => {
-            log.debug('Panel toggle requested', {
-                target: event && event.target ? event.target.tagName : 'unknown',
-                isCollapsed: state.isPanelCollapsed,
-                hasPanel: !!controlPanel,
-                hasContent: !!panelContent,
-                hasToggle: !!panelToggle,
-                panelHidden: controlPanel.classList.contains('controls-hidden')
-            });
-            if (KS.cancelAutoCollapse) {
-                KS.cancelAutoCollapse();
-            }
-            state.isPanelCollapsed = !state.isPanelCollapsed;
+        const ksOverlay = controlPanel.querySelector('.ks-modal-overlay');
+        const ksCloseModal = controlPanel.querySelector('#ks-close-modal');
 
-            if (state.isPanelCollapsed) {
-                controlPanel.classList.add('collapsed');
-                controlPanel.classList.remove('expanded');
-                panelContent.style.display = 'none';
-                panelToggle.textContent = '▶';
-                log.debug('Panel collapsed');
-            } else {
-                controlPanel.classList.remove('collapsed');
-                controlPanel.classList.add('expanded');
-                panelContent.style.display = 'block';
-                panelToggle.textContent = '▼';
-                log.debug('Panel expanded');
-            }
-        };
-
-        panelHeader.addEventListener('click', (event) => {
-            log.debug('Panel header click', {
-                target: event && event.target ? event.target.tagName : 'unknown',
-                currentTarget: event && event.currentTarget ? event.currentTarget.tagName : 'unknown',
-                isCollapsed: state.isPanelCollapsed,
-                panelHidden: controlPanel.classList.contains('controls-hidden')
+        if (dom.navButton) {
+            dom.navButton.addEventListener('click', () => {
+                ksOverlay.style.display = 'flex';
             });
-            togglePanel(event);
+        }
+
+        ksCloseModal.addEventListener('click', () => {
+            ksOverlay.style.display = 'none';
+        });
+
+        ksOverlay.addEventListener('click', (e) => {
+            if(e.target === ksOverlay) ksOverlay.style.display = 'none';
+        });
+
+        const tabs = controlPanel.querySelectorAll('.ks-sidebar-item');
+        const contents = controlPanel.querySelectorAll('.ks-tab-content');
+        tabs.forEach((tab) => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('active'));
+                contents.forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                
+                const targetId = tab.getAttribute('data-target');
+                const targetContent = controlPanel.querySelector('#' + targetId);
+                if (targetContent) {
+                    targetContent.classList.add('active');
+                }
+            });
         });
 
         controlPanel.addEventListener('click', () => {
@@ -488,28 +469,11 @@
             KS.adjustFFZGain('down');
         });
 
-        const speedUp = controlPanel.querySelector('#speed-up');
-        const speedDown = controlPanel.querySelector('#speed-down');
-        const speedReset = controlPanel.querySelector('#speed-reset');
-
-        speedUp.addEventListener('click', () => {
-            KS.changePlaybackSpeed('up');
-        });
-
-        speedDown.addEventListener('click', () => {
-            KS.changePlaybackSpeed('down');
-        });
-
-        speedReset.addEventListener('click', () => {
-            KS.changePlaybackSpeed('reset');
-        });
-
-        const presetButtons = controlPanel.querySelectorAll('.preset-btn');
-        presetButtons.forEach((btn) => {
+        const speedBtns = controlPanel.querySelectorAll('.ks-speed-btn');
+        speedBtns.forEach((btn) => {
             btn.addEventListener('click', () => {
                 const speed = parseFloat(btn.dataset.speed);
-                KS.setPlaybackSpeed(speed);
-                KS.updateControlPanelState();
+                KS.changePlaybackSpeed(speed);
             });
         });
 
@@ -596,6 +560,38 @@
             });
         }
 
+        const togNTV = controlPanel.querySelector('#toggle-ntv');
+        if (togNTV) {
+            togNTV.addEventListener('click', () => {
+                togNTV.classList.toggle('active');
+                KS.saveTweaksSettings();
+            });
+        }
+
+        const togQuality = controlPanel.querySelector('#toggle-quality');
+        if (togQuality) {
+            togQuality.addEventListener('click', () => {
+                togQuality.classList.toggle('active');
+                KS.saveTweaksSettings();
+            });
+        }
+
+        const togSidebar = controlPanel.querySelector('#toggle-sidebar');
+        if (togSidebar) {
+            togSidebar.addEventListener('click', () => {
+                togSidebar.classList.toggle('active');
+                KS.saveTweaksSettings();
+            });
+        }
+
+        const togFixes = controlPanel.querySelector('#toggle-fixes');
+        if (togFixes) {
+            togFixes.addEventListener('click', () => {
+                togFixes.classList.toggle('active');
+                KS.saveTweaksSettings();
+            });
+        }
+
         const pipGuardToggle = controlPanel.querySelector('#pip-guard-toggle');
 
         if (pipGuardToggle) {
@@ -603,6 +599,46 @@
                 KS.togglePiPGuard();
             });
         }
+
+        KS.loadTweaksSettings();
+    };
+
+    KS.saveTweaksSettings = function () {
+        const togNTV = controlPanel.querySelector('#toggle-ntv');
+        const togQuality = controlPanel.querySelector('#toggle-quality');
+        const togSidebar = controlPanel.querySelector('#toggle-sidebar');
+        const togFixes = controlPanel.querySelector('#toggle-fixes');
+
+        const newPrefs = {
+            nipahtv: togNTV ? togNTV.classList.contains('active') : true,
+            quality: togQuality ? togQuality.classList.contains('active') : true,
+            sidebar: togSidebar ? togSidebar.classList.contains('active') : true,
+            fixes: togFixes ? togFixes.classList.contains('active') : true
+        };
+        
+        chrome.storage.local.set({ userscript_settings: newPrefs }, () => {
+            chrome.runtime.sendMessage({ action: 'apply_userscript_settings' });
+        });
+    };
+
+    KS.loadTweaksSettings = function () {
+        chrome.storage.local.get('userscript_settings', (res) => {
+            const prefs = res.userscript_settings || {
+                quality: true,
+                sidebar: true,
+                fixes: true,
+                nipahtv: true
+            };
+            const togNTV = controlPanel.querySelector('#toggle-ntv');
+            const togQuality = controlPanel.querySelector('#toggle-quality');
+            const togSidebar = controlPanel.querySelector('#toggle-sidebar');
+            const togFixes = controlPanel.querySelector('#toggle-fixes');
+
+            if (togNTV) togNTV.classList.toggle('active', prefs.nipahtv);
+            if (togQuality) togQuality.classList.toggle('active', prefs.quality);
+            if (togSidebar) togSidebar.classList.toggle('active', prefs.sidebar);
+            if (togFixes) togFixes.classList.toggle('active', prefs.fixes);
+        });
     };
 
     KS.updateControlPanelState = function updateControlPanelState() {
@@ -610,11 +646,12 @@
             return;
         }
 
-        const boostToggle = controlPanel.querySelector('#boost-toggle .btn-text');
+        const boostToggle = controlPanel.querySelector('#boost-toggle');
+        const btnTextBoost = controlPanel.querySelector('#boost-toggle .btn-text');
         const boostValue = controlPanel.querySelector('#boost-value');
         if (boostToggle) {
-            boostToggle.textContent = state.volumeBoostEnabled ? 'ON' : 'OFF';
-            boostToggle.parentElement.classList.toggle('active', state.volumeBoostEnabled);
+            if (btnTextBoost) btnTextBoost.textContent = state.volumeBoostEnabled ? 'ON' : 'OFF';
+            boostToggle.classList.toggle('active', state.volumeBoostEnabled);
         }
         if (boostValue) {
             boostValue.textContent = `${state.volumeBoostAmount}dB`;
@@ -624,10 +661,11 @@
             volumeStepValue.textContent = `${Math.round(state.volumeScrollStep * 100)}%`;
         }
 
-        const normalizeToggle = controlPanel.querySelector('#normalize-toggle .btn-text');
+        const normalizeToggle = controlPanel.querySelector('#normalize-toggle');
+        const btnTextNorm = controlPanel.querySelector('#normalize-toggle .btn-text');
         if (normalizeToggle) {
-            normalizeToggle.textContent = state.volumeNormalizationEnabled ? 'ON' : 'OFF';
-            normalizeToggle.parentElement.classList.toggle('active', state.volumeNormalizationEnabled);
+            if (btnTextNorm) btnTextNorm.textContent = state.volumeNormalizationEnabled ? 'ON' : 'OFF';
+            normalizeToggle.classList.toggle('active', state.volumeNormalizationEnabled);
         }
 
         const targetValue = controlPanel.querySelector('#target-value');
@@ -644,15 +682,18 @@
             }
         }
 
-        const compressorToggle = controlPanel.querySelector('#compressor-toggle .btn-text');
+        const compressorToggle = controlPanel.querySelector('#compressor-toggle');
+        const btnTextComp = controlPanel.querySelector('#compressor-toggle .btn-text');
         if (compressorToggle) {
-            compressorToggle.textContent = state.compressorEnabled ? 'ON' : 'OFF';
-            compressorToggle.parentElement.classList.toggle('active', state.compressorEnabled);
+            if (btnTextComp) btnTextComp.textContent = state.compressorEnabled ? 'ON' : 'OFF';
+            compressorToggle.classList.toggle('active', state.compressorEnabled);
         }
-        const ffzModeToggle = controlPanel.querySelector('#ffz-mode-toggle .btn-text');
+        
+        const ffzModeToggle = controlPanel.querySelector('#ffz-mode-toggle');
+        const btnTextFFZ = controlPanel.querySelector('#ffz-mode-toggle .btn-text');
         if (ffzModeToggle) {
-            ffzModeToggle.textContent = state.ffzModeEnabled ? 'FFZ ON' : 'FFZ';
-            ffzModeToggle.parentElement.classList.toggle('active', state.ffzModeEnabled);
+            if (btnTextFFZ) btnTextFFZ.classList.toggle('active', state.ffzModeEnabled);
+            ffzModeToggle.classList.toggle('active', state.ffzModeEnabled);
         }
 
         const thresholdValue = controlPanel.querySelector('#threshold-value');
@@ -679,16 +720,18 @@
             btn.classList.toggle('active', speed === state.currentPlaybackRate);
         });
 
-        const bitrateToggle = controlPanel.querySelector('#bitrate-toggle .btn-text');
+        const bitrateToggle = controlPanel.querySelector('#bitrate-toggle');
+        const btnTextBitrate = controlPanel.querySelector('#bitrate-toggle .btn-text');
         if (bitrateToggle) {
-            bitrateToggle.textContent = state.bitrateMonitorEnabled ? 'ON' : 'OFF';
-            bitrateToggle.parentElement.classList.toggle('active', state.bitrateMonitorEnabled);
+            if (btnTextBitrate) btnTextBitrate.textContent = state.bitrateMonitorEnabled ? 'ON' : 'OFF';
+            bitrateToggle.classList.toggle('active', state.bitrateMonitorEnabled);
         }
 
-        const overlayToggle = controlPanel.querySelector('#overlay-toggle .btn-text');
+        const overlayToggle = controlPanel.querySelector('#overlay-toggle');
+        const btnTextOverlay = controlPanel.querySelector('#overlay-toggle .btn-text');
         if (overlayToggle) {
-            overlayToggle.textContent = state.bitrateOverlayVisible ? 'ON' : 'OFF';
-            overlayToggle.parentElement.classList.toggle('active', state.bitrateOverlayVisible);
+            if (btnTextOverlay) btnTextOverlay.textContent = state.bitrateOverlayVisible ? 'ON' : 'OFF';
+            overlayToggle.classList.toggle('active', state.bitrateOverlayVisible);
         }
 
         const bitrateModeBtn = controlPanel.querySelector('#bitrate-mode');
@@ -718,16 +761,18 @@
             opacityValue.textContent = `${Math.round(state.bitrateOpacity * 100)}%`;
         }
 
-        const debugToggle = controlPanel.querySelector('#debug-toggle .btn-text');
+        const debugToggle = controlPanel.querySelector('#debug-toggle');
+        const btnTextDebug = controlPanel.querySelector('#debug-toggle .btn-text');
         if (debugToggle) {
-            debugToggle.textContent = state.debugLoggingEnabled ? 'ON' : 'OFF';
-            debugToggle.parentElement.classList.toggle('active', state.debugLoggingEnabled);
+            if (btnTextDebug) btnTextDebug.textContent = state.debugLoggingEnabled ? 'ON' : 'OFF';
+            debugToggle.classList.toggle('active', state.debugLoggingEnabled);
         }
 
-        const pipGuardToggle = controlPanel.querySelector('#pip-guard-toggle .btn-text');
+        const pipGuardToggle = controlPanel.querySelector('#pip-guard-toggle');
+        const btnTextPipGuard = controlPanel.querySelector('#pip-guard-toggle .btn-text');
         if (pipGuardToggle) {
-            pipGuardToggle.textContent = state.pipGuardEnabled ? 'ON' : 'OFF';
-            pipGuardToggle.parentElement.classList.toggle('active', state.pipGuardEnabled);
+            if (btnTextPipGuard) btnTextPipGuard.textContent = state.pipGuardEnabled ? 'ON' : 'OFF';
+            pipGuardToggle.classList.toggle('active', state.pipGuardEnabled);
         }
     };
 })();

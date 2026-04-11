@@ -306,7 +306,8 @@
                             state.compressorEnabled = settings.compressorEnabled;
                             state.compressorThreshold = settings.compressorThreshold;
                             state.compressorRatio = settings.compressorRatio;
-                            state.currentPlaybackRate = settings.playbackSpeed;
+                            state.currentPlaybackRate = settings.playbackSpeed || 1.0;
+                            state.pipGuardEnabled = settings.pipGuardEnabled !== false;
 
                             if (typeof settings.lastVolume === 'number') {
                                 state.lastVolume = utils.clamp(settings.lastVolume, 0, 1);
@@ -359,6 +360,7 @@
                         volumeNormalizationEnabled: state.volumeNormalizationEnabled,
                         normalizationTargetLufs: state.normalizationTargetLufs,
                         compressorEnabled: state.compressorEnabled,
+                        pipGuardEnabled: state.pipGuardEnabled,
                         ffzModeEnabled: state.ffzModeEnabled,
                         ffzGainEnabled: state.ffzGainEnabled,
                         ffzGainAmount: state.ffzGainAmount,

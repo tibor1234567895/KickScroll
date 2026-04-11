@@ -32,8 +32,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup/dashboard.html",
-    "default_title": "KickScroll Userscripts"
+    "default_title": "KickScroll"
   },
   "web_accessible_resources": [
     {

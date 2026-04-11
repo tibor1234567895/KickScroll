@@ -36,6 +36,66 @@
         }
     };
 
+    const injectNavIcon = () => {
+        if (!KS.dom || !KS.dom.navButton) return;
+        if (document.querySelector('#ks-nav-button')) return;
+        
+        let targetArea = null;
+
+        // Find elements with 'Get KICKs' using xpath
+        const getKicks = document.evaluate('//*[contains(text(), "Get KICKs")]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        if (getKicks) {
+            // Find its closest flex parent that forms the navbar group
+            let parent = getKicks.parentElement;
+            while(parent && parent.tagName !== 'NAV' && parent.tagName !== 'BODY') {
+                const classStr = Array.from(parent.classList).join(' ');
+                // Typically Kick nav flexes have gap-X or are flex items-center
+                if (classStr.includes('flex') && classStr.includes('items-center')) {
+                    if (parent.children.length >= 2) {
+                        targetArea = parent;
+                        break;
+                    }
+                }
+                parent = parent.parentElement;
+            }
+        }
+        
+        // Fallback: look for the user avatar in the nav to find the right-side container
+        if (!targetArea) {
+            const avatar = document.querySelector('nav img[alt*="avatar"], nav img[src*="avatar"]');
+            if (avatar) {
+                targetArea = avatar.closest('.flex');
+            }
+        }
+
+        // Final Fallback: last flex row in nav
+        if (!targetArea) {
+            const navRight = document.querySelectorAll('nav .flex.items-center.justify-end, nav .flex-row:last-child');
+            if (navRight.length) {
+                targetArea = navRight[navRight.length - 1];
+            }
+        }
+
+        if (targetArea) {
+            // Apply flex classes safely, reset any fixed styling
+            KS.dom.navButton.style.position = 'relative';
+            KS.dom.navButton.style.top = 'auto';
+            KS.dom.navButton.style.right = 'auto';
+            
+            // Insert at the beginning of the container (to the left of NipahTV/Sub icons)
+            targetArea.insertBefore(KS.dom.navButton, targetArea.firstChild);
+        } else {
+            // Absolute fallback: Put it fixed on screen if nothing is found
+            KS.dom.navButton.style.position = 'fixed';
+            KS.dom.navButton.style.top = '12px';
+            KS.dom.navButton.style.right = '280px';
+            KS.dom.navButton.style.zIndex = '999999';
+            document.body.appendChild(KS.dom.navButton);
+        }
+    };
+
+    setInterval(injectNavIcon, 2000);
+
     const handleTabVisible = () => {
         if (document.hidden) {
             return;
