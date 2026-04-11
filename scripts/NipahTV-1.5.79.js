@@ -8,6 +8,7 @@ const GM_getValue = (key, defaultVal) => {
     try { return JSON.parse(localStorage.getItem('nipah_' + key)) || defaultVal; } catch { return defaultVal; }
 };
 const unsafeWindow = window;
+console.warn("[NipahTV] userscript loaded");
 // ==UserScript==
 // @name NipahTV
 // @namespace https://github.com/Xzensi/NipahTV
@@ -19958,6 +19959,7 @@ var UserInfoModal = class extends AbstractModal {
   modLogsPageEl;
   timeoutSliderComponent;
   resizeHandleEl;
+  historyReplyObserver = null;
   messagesHistoryCursor = 0;
   isLoadingMessages = false;
   hasLoadedMessagesHistory = false;
@@ -20008,6 +20010,7 @@ var UserInfoModal = class extends AbstractModal {
   }
   async render() {
     super.render();
+    log18("CORE", "UI", `UserInfoModal.render for ${this.username}`);
     const { channelData, usersManager, badgeProvider } = this.session;
     const isModerator = channelData.me.isSuperAdmin || channelData.me.isModerator || channelData.me.isBroadcaster;
     await this.updateUserInfo();
@@ -20197,6 +20200,7 @@ var UserInfoModal = class extends AbstractModal {
     }
     this.modalBodyEl.appendChild(element);
     this.updateGiftSubButton();
+    this.bindNativeHistoryReplyTransform();
     try {
       await this.initializeMessagesHistory();
     } catch (err) {
@@ -20645,6 +20649,7 @@ var UserInfoModal = class extends AbstractModal {
     const database = this.rootContext.database;
     const channelId = this.session.channelData?.channelId;
     if (!userInfo || !database || !channelId) return [];
+    log18("CORE", "UI", `Loading stored message history for ${userInfo.username} (${channelId})`);
     let records = [];
     if (userInfo.id) {
       records = await database.chatHistory.getRecords(NTV_PLATFORM, channelId, {
@@ -20705,7 +20710,51 @@ var UserInfoModal = class extends AbstractModal {
     const historyEl = this.messagesHistoryEl;
     if (!historyEl) return false;
     try {
-      let entriesHTML = "", lastDate, dateCursor;
+      let lastDate, dateCursor;
+      const renderTextParts = (text) => {
+        const parsedMessageParts = emotesManager.parseEmoteText(text || "");
+        return userInterface.renderMessageParts(parsedMessageParts);
+      };
+      const extractReplyPreviewFromText = (text) => {
+        const normalizedText = (text || "").replace(/\s+/g, " ").trim();
+        const match = normalizedText.match(/^Replying to\s+(.+?):\s*(.*)$/i);
+        if (!match) return null;
+        return {
+          username: match[1].trim(),
+          content: match[2].trim()
+        };
+      };
+      const createDateSeparatorEl = (formattedDate) => {
+        return parseHTML(
+          `<div class="ntv__chat-message-separator ntv__chat-message-separator--date"><div></div><span>${formattedDate}</span><div></div></div>`,
+          true
+        );
+      };
+      const createReplyPreviewEl = (replyTo) => {
+        if (!replyTo?.content) return null;
+    log18("CORE", "UI", `NTVCARD rendering history reply preview for ${replyTo.username || "unknown"}..`);
+        const replyPreviewEl = document.createElement("div");
+        replyPreviewEl.className = "ntv__chat-message__reply";
+        const replyLabelEl = document.createElement("span");
+        replyLabelEl.className = "ntv__chat-message__reply-label";
+        replyLabelEl.textContent = "Replying to ";
+        replyPreviewEl.append(replyLabelEl);
+        if (replyTo.username) {
+          const replyUsernameEl = document.createElement("span");
+          replyUsernameEl.className = "ntv__chat-message__reply-username";
+          replyUsernameEl.textContent = replyTo.username;
+          replyPreviewEl.append(replyUsernameEl);
+        }
+        const replySeparatorEl = document.createElement("span");
+        replySeparatorEl.className = "ntv__chat-message__reply-separator";
+        replySeparatorEl.textContent = ": ";
+        replyPreviewEl.append(replySeparatorEl);
+        const replyContentEl = document.createElement("span");
+        replyContentEl.className = "ntv__chat-message__reply-content";
+        replyContentEl.append(...renderTextParts(replyTo.content));
+        replyPreviewEl.append(replyContentEl);
+        return replyPreviewEl;
+      };
       for (const message of messages) {
         const hasCreatedAt = !!message.createdAt;
         const d = hasCreatedAt ? new Date(message.createdAt) : null;
@@ -20720,21 +20769,54 @@ var UserInfoModal = class extends AbstractModal {
           });
           dateCursor = dateString;
           lastDate = d;
-          entriesHTML += `<div class="ntv__chat-message-separator ntv__chat-message-separator--date"><div></div><span>${formattedDate}</span><div></div></div>`;
+          historyEl.append(createDateSeparatorEl(formattedDate));
         } else if (d && !lastDate) {
           lastDate = d;
           dateCursor = dateString;
         }
-        const badgeHTML = (message.sender?.badges || []).map(badgeProvider.getBadge.bind(badgeProvider)).join("");
-        entriesHTML += `<div class="ntv__chat-message" data-history-message-id="${message.id || ""}" unrendered>
-				<span class="ntv__chat-message__identity">
-					${showMetadata && time ? `<span class="ntv__chat-message__timestamp">${time}</span>` : ""}
-					<span class="ntv__chat-message__badges">${badgeHTML}</span>
-					<span class="ntv__chat-message__username" style="color:${message.sender.color}">${message.sender.username}</span>
-					<span class="ntv__chat-message__separator">: </span>
-				</span>
-				<span class="ntv__chat-message__part">${message.content}</span>
-			</div>`;
+        const messageEl = document.createElement("div");
+        messageEl.className = "ntv__chat-message";
+        messageEl.setAttribute("data-history-message-id", message.id || "");
+        const nativeReplyPreview = extractReplyPreviewFromText(message.content);
+        const replyTo = message.replyTo || nativeReplyPreview;
+        const messageBodyText = nativeReplyPreview ? nativeReplyPreview.content : (message.content || "");
+        log18("CORE", "UI", `NTVCARD rendering history row ${message.id || "unknown"}..`);
+        if (replyTo) {
+          messageEl.classList.add("ntv__chat-message--reply");
+          const replyPreviewEl = createReplyPreviewEl(replyTo);
+          if (replyPreviewEl) {
+            messageEl.append(replyPreviewEl);
+          }
+        }
+        const identityEl = document.createElement("span");
+        identityEl.className = "ntv__chat-message__identity";
+        if (showMetadata && time) {
+          const timestampEl = document.createElement("span");
+          timestampEl.className = "ntv__chat-message__timestamp";
+          timestampEl.textContent = time;
+          identityEl.append(timestampEl);
+        }
+        const badgesEl = document.createElement("span");
+        badgesEl.className = "ntv__chat-message__badges";
+        badgesEl.innerHTML = (message.sender?.badges || []).map(badgeProvider.getBadge.bind(badgeProvider)).join("");
+        identityEl.append(badgesEl);
+        const usernameEl = document.createElement("span");
+        usernameEl.className = "ntv__chat-message__username";
+        usernameEl.style.color = message.sender?.color || "";
+        usernameEl.textContent = message.sender?.username || "";
+        identityEl.append(usernameEl);
+        const separatorEl = document.createElement("span");
+        separatorEl.className = "ntv__chat-message__separator";
+        separatorEl.textContent = ": ";
+        identityEl.append(separatorEl);
+        const messagePartEl = document.createElement("span");
+        messagePartEl.className = "ntv__chat-message__part";
+        messagePartEl.textContent = messageBodyText;
+        messageEl.append(identityEl, messagePartEl);
+        const messageParts = renderTextParts(messagePartEl.textContent || "");
+        messagePartEl.after(...messageParts);
+        messagePartEl.remove();
+        historyEl.append(messageEl);
       }
       if (showMetadata && includeDateSeparators && messages.length && !this.messagesHistoryCursor && lastDate) {
         const formattedDate = lastDate.toLocaleDateString("en-US", {
@@ -20743,20 +20825,10 @@ var UserInfoModal = class extends AbstractModal {
           month: "long",
           day: "numeric"
         });
-        entriesHTML += `<div class="ntv__chat-message-separator ntv__chat-message-separator--date"><div></div><span>${formattedDate}</span><div></div></div>`;
+        historyEl.append(createDateSeparatorEl(formattedDate));
       }
       const existingState = historyEl.querySelector(".ntv__user-info-modal__history__state");
       if (existingState) existingState.remove();
-      historyEl.append(parseHTML(cleanupHTML(entriesHTML)));
-      historyEl.querySelectorAll(".ntv__chat-message[unrendered]").forEach((messageEl) => {
-        messageEl.querySelectorAll(".ntv__chat-message__part").forEach((messagePartEl) => {
-          const parsedMessageParts = emotesManager.parseEmoteText(messagePartEl.textContent || "");
-          const nodes = userInterface.renderMessageParts(parsedMessageParts);
-          messagePartEl.after(...nodes);
-          messagePartEl.remove();
-        });
-        messageEl.removeAttribute("unrendered");
-      });
       const lastMessageWithDate = [...messages].reverse().find((message) => !!message.createdAt);
       if (lastMessageWithDate) {
         this.lastRenderedHistoryDateKey = this.getHistoryDateKey(lastMessageWithDate.createdAt);
@@ -20767,6 +20839,88 @@ var UserInfoModal = class extends AbstractModal {
       historyEl.innerHTML = `<div class="ntv__user-info-modal__history__state ntv__user-info-modal__history__state--unavailable">History unavailable here.</div>`;
       return false;
     }
+  }
+  parseHistoryReplyPreviewContent(replyText) {
+    const normalizedText = (replyText || "").replace(/\s+/g, " ").trim();
+    const match = normalizedText.match(/^Replying to\s+(.+?):\s*(.*)$/i);
+    if (!match) return null;
+    return {
+      username: match[1].trim(),
+      content: match[2].trim()
+    };
+  }
+  createHistoryReplyPreviewElement(replyTo) {
+    if (!replyTo?.content) return null;
+    const replyPreviewEl = document.createElement("div");
+    replyPreviewEl.className = "ntv__user-info-modal__history-reply";
+    const replyLabelEl = document.createElement("span");
+    replyLabelEl.className = "ntv__user-info-modal__history-reply-label";
+    replyLabelEl.textContent = "Replying to ";
+    replyPreviewEl.append(replyLabelEl);
+    if (replyTo.username) {
+      const replyUsernameEl = document.createElement("span");
+      replyUsernameEl.className = "ntv__user-info-modal__history-reply-username";
+      replyUsernameEl.textContent = replyTo.username;
+      replyPreviewEl.append(replyUsernameEl);
+    }
+    const replySeparatorEl = document.createElement("span");
+    replySeparatorEl.className = "ntv__user-info-modal__history-reply-separator";
+    replySeparatorEl.textContent = ": ";
+    replyPreviewEl.append(replySeparatorEl);
+    const replyContentEl = document.createElement("span");
+    replyContentEl.className = "ntv__user-info-modal__history-reply-content";
+    replyContentEl.append(...this.session.userInterface.renderMessageParts(this.session.emotesManager.parseEmoteText(replyTo.content)));
+    replyPreviewEl.append(replyContentEl);
+    return replyPreviewEl;
+  }
+  transformNativeHistoryReplyNode(replyButton) {
+    if (!(replyButton instanceof HTMLElement)) return false;
+    if (replyButton.dataset.ntvHistoryReplyTransformed === "1") return false;
+    const replyText = (replyButton.textContent || "").replace(/\s+/g, " ").trim();
+    const replyPreview = this.parseHistoryReplyPreviewContent(replyText);
+    if (!replyPreview) return false;
+    const shellEl = replyButton.parentElement;
+    if (shellEl instanceof HTMLElement) {
+      shellEl.classList.add("ntv__user-info-modal__history-reply-shell");
+    }
+    replyButton.dataset.ntvHistoryReplyTransformed = "1";
+    replyButton.classList.add("ntv__user-info-modal__history-reply-button");
+    replyButton.replaceChildren();
+    const previewEl = this.createHistoryReplyPreviewElement(replyPreview);
+    if (!previewEl) return false;
+    replyButton.append(previewEl);
+    console.warn("[NipahTV] transformed native history reply", {
+      username: replyPreview.username,
+      contentPreview: replyPreview.content.slice(0, 80)
+    });
+    return true;
+  }
+  transformNativeHistoryReplyNodes(rootEl = this.messagesHistoryEl) {
+    if (!(rootEl instanceof HTMLElement)) return;
+    const replyButtons = rootEl.querySelectorAll("button");
+    for (const replyButton of replyButtons) {
+      if (!(replyButton instanceof HTMLElement)) continue;
+      const replyText = (replyButton.textContent || "").replace(/\s+/g, " ").trim();
+      if (!/^Replying to\s+.+?:\s*/i.test(replyText)) continue;
+      this.transformNativeHistoryReplyNode(replyButton);
+    }
+  }
+  bindNativeHistoryReplyTransform() {
+    const historyEl = this.messagesHistoryEl;
+    if (!(historyEl instanceof HTMLElement)) return;
+    if (!this.historyReplyObserver) {
+      this.historyReplyObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (!(node instanceof HTMLElement)) continue;
+            this.transformNativeHistoryReplyNodes(node);
+          }
+        }
+      });
+      this.historyReplyObserver.observe(historyEl, { childList: true, subtree: true });
+      console.warn("[NipahTV] history reply observer ready");
+    }
+    this.transformNativeHistoryReplyNodes(historyEl);
   }
   appendLiveHistoryMessage(message) {
     const historyEl = this.messagesHistoryEl;
@@ -20811,6 +20965,7 @@ var UserInfoModal = class extends AbstractModal {
   async initializeMessagesHistory() {
     const { userInfo, messagesHistoryEl } = this;
     if (!userInfo || !messagesHistoryEl) return;
+    log18("CORE", "UI", `Initializing message history for ${userInfo.username}..`);
     this.messagesHistoryCursor = 0;
     this.isLoadingMessages = false;
     this.hasLoadedMessagesHistory = false;
@@ -20819,6 +20974,7 @@ var UserInfoModal = class extends AbstractModal {
     messagesHistoryEl.setAttribute("loading", "");
     this.renderHistoryState("Loading messages...", "loading");
     log18("CORE", "UI", `Fetching user messages of ${userInfo.username}..`);
+    this.bindNativeHistoryReplyTransform();
     await this.loadMoreMessagesHistory();
     if (!this.messagesHistoryEl || !this.hasLoadedMessagesHistory) return;
     let autoLoadCount = 0;
@@ -20848,6 +21004,7 @@ var UserInfoModal = class extends AbstractModal {
     const cursor = this.messagesHistoryCursor;
     if (typeof cursor !== "number") return;
     if (this.isLoadingMessages) return;
+    log18("CORE", "UI", `Loading more message history for ${userInfo.username} at cursor ${cursor}..`);
     this.isLoadingMessages = true;
     let res;
     try {
@@ -20861,6 +21018,7 @@ var UserInfoModal = class extends AbstractModal {
             showMetadata: this.shouldShowMessageHistoryMetadata(),
             includeDateSeparators: true
           });
+          this.bindNativeHistoryReplyTransform();
           this.hasLoadedMessagesHistory = true;
           this.isLoadingMessages = false;
           messagesHistoryEl.removeAttribute("loading");
@@ -20873,6 +21031,7 @@ var UserInfoModal = class extends AbstractModal {
             showMetadata: this.shouldShowMessageHistoryMetadata(),
             includeDateSeparators: false
           });
+          this.bindNativeHistoryReplyTransform();
           this.hasLoadedMessagesHistory = true;
           this.isLoadingMessages = false;
           messagesHistoryEl.removeAttribute("loading");
@@ -20895,6 +21054,7 @@ var UserInfoModal = class extends AbstractModal {
           showMetadata: this.shouldShowMessageHistoryMetadata(),
           includeDateSeparators: true
         });
+        this.bindNativeHistoryReplyTransform();
         this.hasLoadedMessagesHistory = true;
         messagesHistoryEl.removeAttribute("loading");
         this.isLoadingMessages = false;
@@ -24188,6 +24348,7 @@ var KickUserInterface = class extends AbstractUserInterface {
   emoteMenuButtonObserver = null;
   quickEmotesHolder = null;
   quickEmotesHolderObserver = null;
+  nativeUserCardReplyObserver = null;
   celebrationsContainerEl = null;
   clearQueuedChatMessagesInterval = null;
   reloadUIhackInterval = null;
@@ -24355,6 +24516,7 @@ var KickUserInterface = class extends AbstractUserInterface {
           (err) => error29("KICK", "UI", "Failed to observe pinned messages", err)
         );
         this.observeChatEntriesForDeletionEvents();
+        this.observeNativeUserCardReplies();
       }
       if (!channelData.isVod) {
         this.reloadUIhackInterval = setInterval(() => {
@@ -24933,20 +25095,35 @@ var KickUserInterface = class extends AbstractUserInterface {
     if (this.isStickyLive) scrollContainerEl.classList.add("ntv__sticky-scroll");
 
     const isAtBottom = (target) => (target.scrollHeight || 0) - target.scrollTop <= target.clientHeight + 15;
-    const isPointerInsideChat = (clientX, clientY) => {
+    const isPointerWithinChatBounds = (clientX, clientY) => {
       if (!hoverTargetEl.isConnected) return false;
       const rect = hoverTargetEl.getBoundingClientRect();
       if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
         return false;
       }
-      const hoveredEl = document.elementFromPoint(clientX, clientY);
-      return !!hoveredEl && hoverTargetEl.contains(hoveredEl);
+      return true;
     };
-    const isActuallyHoveringChat = () => {
-      if (lastPointerClientX !== null && lastPointerClientY !== null) {
-        return isPointerInsideChat(lastPointerClientX, lastPointerClientY);
+    const isEventInsideChat = (evt) => {
+      if (!evt || !hoverTargetEl.isConnected) return false;
+      if (typeof evt.composedPath === "function") {
+        const eventPath = evt.composedPath();
+        if (Array.isArray(eventPath) && eventPath.includes(hoverTargetEl)) {
+          return true;
+        }
       }
-      return hoverTargetEl.isConnected && hoverTargetEl.matches(":hover");
+      const eventTarget = evt.target;
+      return eventTarget instanceof Node && hoverTargetEl.contains(eventTarget);
+    };
+    let hoverPointerInside = false;
+    let hoverPauseShouldRestoreLive = false;
+    const isActuallyHoveringChat = () => {
+      if (!hoverTargetEl.isConnected) return false;
+      if (hoverPointerInside) return true;
+      if (hoverTargetEl.matches(":hover")) return true;
+      if ((this.isHoverPaused || this.isHoveringChat) && lastPointerClientX !== null && lastPointerClientY !== null) {
+        return isPointerWithinChatBounds(lastPointerClientX, lastPointerClientY);
+      }
+      return false;
     };
     const clearResumeTimeout = () => {
       if (this.hoverResumeTimeout) {
@@ -24959,6 +25136,15 @@ var KickUserInterface = class extends AbstractUserInterface {
     const resetLastPointerPosition = () => {
       lastPointerClientX = null;
       lastPointerClientY = null;
+    };
+    const setHoverPointerState = (inside, evt) => {
+      hoverPointerInside = inside;
+      if (evt && typeof evt.clientX === "number" && typeof evt.clientY === "number") {
+        lastPointerClientX = evt.clientX;
+        lastPointerClientY = evt.clientY;
+      } else if (!inside) {
+        resetLastPointerPosition();
+      }
     };
     const syncStickyClass = () => {
       scrollContainerEl.classList.toggle("ntv__sticky-scroll", this.isStickyLive && !this.isHoverPaused);
@@ -24978,49 +25164,101 @@ var KickUserInterface = class extends AbstractUserInterface {
         scrollContainerEl.scrollTop = nextScrollTop;
       }
     };
-    const clickKickResumeButton = () => {
+    const forceScrollChatToBottom = () => {
+      const scrollTargets = [scrollContainerEl, chatMessagesContainerEl];
+      for (const target of scrollTargets) {
+        if (!(target instanceof HTMLElement)) continue;
+        target.scrollTop = target.scrollHeight;
+        target.dispatchEvent(new Event("scroll", { bubbles: true }));
+      }
+      const lastMessageEl = chatMessagesContainerEl.lastElementChild;
+      if (lastMessageEl instanceof HTMLElement) {
+        lastMessageEl.scrollIntoView(false);
+      }
+    };
+    const normalizeElementText = (value) => (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const PAUSE_CHIP_LABEL = "chat paused for scrolling";
+    const isElementVisible = (el) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+    const getKickPauseChipButton = () => {
       const chatroom = document.getElementById("chatroom") || document.querySelector('[id*="chatroom"]');
-      if (chatroom) {
-        const buttons = chatroom.querySelectorAll("button");
-        for (const btn of buttons) {
-          const text = btn.textContent?.toLowerCase() || "";
-          const ariaLabel = btn.getAttribute("aria-label")?.toLowerCase() || "";
-          const classes = btn.className || "";
-          if (classes.includes("inline") && classes.includes("font-bold")) {
-            continue;
-          }
-          if (btn.hasAttribute("data-prevent-expand")) {
-            continue;
-          }
-          const isResumeButton = text.includes("scroll") || text.includes("paused") || text.includes("new message") || ariaLabel.includes("scroll") || ariaLabel.includes("resume");
-          if (isResumeButton) {
-            btn.click();
-            log28("KICK", "UI", "Clicked Kick resume button");
-            return;
-          }
-        }
+      if (!(chatroom instanceof Element)) return null;
+      const buttons = chatroom.querySelectorAll("button");
+      for (const button of buttons) {
+        if (!(button instanceof HTMLButtonElement) || !isElementVisible(button)) continue;
+        const labelEl = button.querySelector("span");
+        const labelText = normalizeElementText(labelEl?.textContent || button.textContent);
+        if (labelText !== PAUSE_CHIP_LABEL) continue;
+        if (!button.classList.contains("group") || !button.classList.contains("inline-flex")) continue;
+        return button;
       }
-      const resumeBtn = document.querySelector("#chatroom-messages ~ button, #chatroom-messages + div > button");
-      if (resumeBtn) {
-        resumeBtn.click();
-        log28("KICK", "UI", "Clicked sibling resume button");
+      return null;
+    };
+    const clickElement = (el) => {
+      if (!(el instanceof HTMLElement)) return false;
+      el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, composed: true, view: window }));
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true, view: window }));
+      el.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, cancelable: true, composed: true, view: window }));
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, composed: true, view: window }));
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, composed: true, view: window }));
+      if (typeof el.click === "function") {
+        el.click();
       }
+      return true;
+    };
+    const clickKickResumeButton = (attemptLabel = "default") => {
+      const pauseChipButton = getKickPauseChipButton();
+      if (!pauseChipButton) {
+        log28("KICK", "UI", "Kick pause chip button not found", attemptLabel);
+        return false;
+      }
+      if (clickElement(pauseChipButton)) {
+        log28("KICK", "UI", "Clicked Kick pause chip button", attemptLabel, PAUSE_CHIP_LABEL);
+        return true;
+      }
+      log28("KICK", "UI", "Failed to click Kick pause chip button", attemptLabel);
+      return false;
+    };
+    const scheduleKickResumeAttempts = (reason) => {
+      let hasClicked = false;
+      const attemptResume = (attemptLabel) => {
+        if (this.isHoverPaused || !this.isStickyLive) return;
+        if (hasClicked) return;
+        forceScrollChatToBottom();
+        hasClicked = clickKickResumeButton(`${reason}:${attemptLabel}`);
+      };
+      attemptResume("immediate");
+      requestAnimationFrame(() => {
+        attemptResume("raf");
+      });
     };
     const clearHoverPause = (reason) => {
       clearResumeTimeout();
+      hoverPointerInside = false;
       this.isHoveringChat = false;
+      const shouldRestoreLive = hoverPauseShouldRestoreLive;
+      hoverPauseShouldRestoreLive = false;
       if (!this.isHoverPaused) {
         syncStickyClass();
         return;
       }
       this.isHoverPaused = false;
+      if (shouldRestoreLive) {
+        this.isStickyLive = true;
+      }
       syncStickyClass();
-      if (this.isStickyLive) {
-        scrollContainerEl.scrollTop = 99999;
+      if (shouldRestoreLive || this.isStickyLive) {
+        forceScrollChatToBottom();
         requestAnimationFrame(() => {
-          if (!this.isHoverPaused && this.isStickyLive) {
-            scrollContainerEl.scrollTop = 99999;
-            clickKickResumeButton();
+          if (!this.isHoverPaused && (shouldRestoreLive || this.isStickyLive)) {
+            this.isStickyLive = true;
+            syncStickyClass();
+            forceScrollChatToBottom();
+            scheduleKickResumeAttempts(reason);
           }
         });
       }
@@ -25051,8 +25289,8 @@ var KickUserInterface = class extends AbstractUserInterface {
         clearHoverPause(reason);
       });
     };
-    const handleHoverExit = (reason) => {
-      resetLastPointerPosition();
+    const handleHoverExit = (reason, evt) => {
+      setHoverPointerState(false, evt);
       if (this.isHoverPaused || this.isHoveringChat) {
         confirmHoverPauseShouldResume(reason);
       }
@@ -25064,6 +25302,7 @@ var KickUserInterface = class extends AbstractUserInterface {
       }
       this.isHoveringChat = true;
       if (!this.isHoverPaused && this.isStickyLive) {
+        hoverPauseShouldRestoreLive = true;
         this.isHoverPaused = true;
         syncStickyClass();
         nudgeScrollOutOfLive();
@@ -25074,12 +25313,13 @@ var KickUserInterface = class extends AbstractUserInterface {
       }
     };
     const registerHoverActivity = (evt, activitySource) => {
-      if (evt) {
+      if (evt && typeof evt.clientX === "number" && typeof evt.clientY === "number") {
         if (evt.clientX === lastPointerClientX && evt.clientY === lastPointerClientY && activitySource === "move") {
           return;
         }
-        lastPointerClientX = evt.clientX;
-        lastPointerClientY = evt.clientY;
+        setHoverPointerState(true, evt);
+      } else {
+        hoverPointerInside = true;
       }
       pauseHoverScrolling();
     };
@@ -25106,6 +25346,7 @@ var KickUserInterface = class extends AbstractUserInterface {
       (evt) => {
         if (this.isStickyLive && evt.deltaY < 0) {
           this.isStickyLive = false;
+          hoverPauseShouldRestoreLive = false;
           syncStickyClass();
         }
       },
@@ -25115,14 +25356,26 @@ var KickUserInterface = class extends AbstractUserInterface {
     if (hoverPauseEnabled) {
       this.domEventManager.addEventListener(
         hoverTargetEl,
+        "pointerenter",
+        (evt) => registerHoverActivity(evt, "pointerenter"),
+        { passive: true }
+      );
+      this.domEventManager.addEventListener(
+        hoverTargetEl,
+        "mouseenter",
+        (evt) => registerHoverActivity(evt, "mouseenter"),
+        { passive: true }
+      );
+      this.domEventManager.addEventListener(
+        hoverTargetEl,
         "pointerleave",
-        () => handleHoverExit("on pointer leave"),
+        (evt) => handleHoverExit("on pointer leave", evt),
         { passive: true }
       );
       this.domEventManager.addEventListener(
         hoverTargetEl,
         "mouseleave",
-        () => handleHoverExit("on mouse leave event"),
+        (evt) => handleHoverExit("on mouse leave event", evt),
         { passive: true }
       );
       this.domEventManager.addEventListener(
@@ -25133,7 +25386,7 @@ var KickUserInterface = class extends AbstractUserInterface {
           if (relatedTarget && hoverTargetEl.contains(relatedTarget)) {
             return;
           }
-          handleHoverExit("on mouse out");
+          handleHoverExit("on mouse out", evt);
         },
         { passive: true }
       );
@@ -25141,13 +25394,12 @@ var KickUserInterface = class extends AbstractUserInterface {
         document,
         "pointermove",
         (evt) => {
-          const isInsideChat = isPointerInsideChat(evt.clientX, evt.clientY);
+          const isInsideChat = isEventInsideChat(evt) || hoverTargetEl.matches(":hover");
           if (isInsideChat) {
             registerHoverActivity(evt, "move");
             return;
           }
-          lastPointerClientX = evt.clientX;
-          lastPointerClientY = evt.clientY;
+          setHoverPointerState(false, evt);
           if (this.isHoverPaused || this.isHoveringChat) {
             clearHoverPause("on mouse leave");
           }
@@ -25157,7 +25409,7 @@ var KickUserInterface = class extends AbstractUserInterface {
       this.domEventManager.addEventListener(
         document,
         "mouseleave",
-        () => handleHoverExit("on document mouse leave"),
+        (evt) => handleHoverExit("on document mouse leave", evt),
         { passive: true }
       );
       this.domEventManager.addEventListener(window, "blur", () => clearHoverPause("on window blur"));
@@ -25425,8 +25677,7 @@ var KickUserInterface = class extends AbstractUserInterface {
     this.addExistingMessagesToQueue();
   }
   shouldShowModerationActionNotices() {
-    const me = this.session.channelData.me;
-    return !(me.isBroadcaster || me.isModerator || me.isSuperAdmin);
+    return true;
   }
   formatModerationActionNotice(action, data) {
     const actor = action === "unbanned" ? data.unbannedBy?.username : data.bannedBy?.username;
@@ -25869,6 +26120,191 @@ var KickUserInterface = class extends AbstractUserInterface {
       }
     });
   }
+  parseNativeUserCardReplyPreview(replyText) {
+    const normalizedText = (replyText || "").replace(/\s+/g, " ").trim();
+    const match = normalizedText.match(/^Replying to\s+(.+?):\s*(.*)$/i);
+    if (!match) return null;
+    return {
+      username: match[1].trim(),
+      content: match[2].trim()
+    };
+  }
+  createNativeUserCardReplyPreviewElement(replyTo, replyParts) {
+    if (!replyTo?.content) return null;
+    const previewEl = document.createElement("div");
+    previewEl.className = "ntv__native-user-card-reply";
+    const labelEl = document.createElement("span");
+    labelEl.className = "ntv__native-user-card-reply-label";
+    labelEl.textContent = "Replying to ";
+    previewEl.append(labelEl);
+    if (replyTo.username) {
+      const usernameEl = document.createElement("span");
+      usernameEl.className = "ntv__native-user-card-reply-username";
+      usernameEl.textContent = replyTo.username;
+      previewEl.append(usernameEl);
+    }
+    const separatorEl = document.createElement("span");
+    separatorEl.className = "ntv__native-user-card-reply-separator";
+    separatorEl.textContent = ": ";
+    previewEl.append(separatorEl);
+    const contentEl = document.createElement("span");
+    contentEl.className = "ntv__native-user-card-reply-content";
+    const parts = Array.isArray(replyParts) && replyParts.length
+      ? replyParts
+      : this.session.emotesManager.parseEmoteText(replyTo.content);
+    contentEl.append(...this.session.userInterface.renderMessageParts(parts));
+    previewEl.append(contentEl);
+    return previewEl;
+  }
+  transformNativeUserCardReplyButton(replyButton) {
+    if (!(replyButton instanceof HTMLElement)) return false;
+    if (replyButton.dataset.ntvReplyTransformed === "1") return false;
+    const sourceButton = replyButton.cloneNode(true);
+    const replyText = (replyButton.textContent || "").replace(/\s+/g, " ").trim();
+    const replyTo = this.parseNativeUserCardReplyPreview(replyText);
+    if (!replyTo) return false;
+    const replyParts = [];
+    const emotesManager = this.session.emotesManager;
+    const parseReplyPreviewNode = (currentNode) => {
+      if (currentNode.nodeType === Node.TEXT_NODE) {
+        const text = currentNode.textContent || "";
+        if (!text) return;
+        emotesManager.parseEmoteText(text, replyParts);
+        return;
+      }
+      if (!(currentNode instanceof HTMLElement)) return;
+      if (currentNode.tagName === "SVG" || currentNode.namespaceURI === "http://www.w3.org/2000/svg") return;
+      if (currentNode.tagName === "BR") {
+        replyParts.push(" ");
+        return;
+      }
+      const emoteId = currentNode.getAttribute("data-emote-id");
+      const emoteName = currentNode.getAttribute("data-emote-name") || currentNode.getAttribute("aria-label") || "";
+      if (emoteName && currentNode.querySelector("img")) {
+        let emote = emotesManager.getEmoteByName(emoteName);
+        if (!emote && emoteId) {
+          emote = {
+            id: emoteId,
+            name: emoteName,
+            isSubscribersOnly: true,
+            provider: 1 /* KICK */
+          };
+        }
+        if (emote) {
+          replyParts.push({
+            type: "emote",
+            emote
+          });
+          return;
+        }
+      }
+      for (const childNode of currentNode.childNodes) {
+        parseReplyPreviewNode(childNode);
+      }
+    };
+    const replyContentSourceNode =
+      sourceButton.querySelector("span.inline") ||
+      Array.from(sourceButton.querySelectorAll("span")).at(-1) ||
+      sourceButton;
+    if (replyContentSourceNode instanceof HTMLElement) {
+      for (const childNode of replyContentSourceNode.childNodes) {
+        parseReplyPreviewNode(childNode);
+      }
+    }
+    const replyShellEl = replyButton.parentElement;
+    const replyRowEl = replyShellEl?.parentElement?.parentElement;
+    const replyCardEl = replyShellEl?.parentElement;
+    const zeroSpacing = (el) => {
+      if (!(el instanceof HTMLElement)) return;
+      el.classList.add("ntv__native-user-card-reply-row");
+      el.style.setProperty("padding-left", "0", "important");
+      el.style.setProperty("padding-right", "0", "important");
+      el.style.setProperty("margin-left", "0", "important");
+      el.style.setProperty("margin-right", "0", "important");
+      el.style.setProperty("box-sizing", "border-box", "important");
+      el.style.setProperty("width", "100%", "important");
+      el.style.setProperty("max-width", "100%", "important");
+      el.style.setProperty("overflow", "visible", "important");
+    };
+    zeroSpacing(replyRowEl);
+    zeroSpacing(replyCardEl);
+    if (replyShellEl instanceof HTMLElement) {
+      replyShellEl.classList.add("ntv__native-user-card-reply-shell");
+      replyShellEl.style.setProperty("padding-left", "0", "important");
+      replyShellEl.style.setProperty("padding-right", "0", "important");
+      replyShellEl.style.setProperty("margin-left", "0", "important");
+      replyShellEl.style.setProperty("margin-right", "0", "important");
+      replyShellEl.style.setProperty("box-sizing", "border-box", "important");
+      replyShellEl.style.setProperty("width", "100%", "important");
+      replyShellEl.style.setProperty("max-width", "100%", "important");
+      replyShellEl.style.setProperty("overflow", "visible", "important");
+    }
+    replyButton.dataset.ntvReplyTransformed = "1";
+    replyButton.classList.add("ntv__native-user-card-reply-button");
+    replyButton.classList.remove("truncate");
+    replyButton.style.setProperty("padding", "0", "important");
+    replyButton.style.setProperty("margin", "0", "important");
+    replyButton.style.setProperty("width", "100%", "important");
+    replyButton.style.setProperty("max-width", "100%", "important");
+    replyButton.style.setProperty("overflow", "visible", "important");
+    replyButton.style.setProperty("white-space", "normal", "important");
+    replyButton.style.setProperty("text-overflow", "clip", "important");
+    replyButton.replaceChildren();
+    const previewEl = this.createNativeUserCardReplyPreviewElement(replyTo, replyParts);
+    if (!previewEl) return false;
+    replyButton.append(previewEl);
+    if (previewEl instanceof HTMLElement) {
+      previewEl.style.setProperty("display", "inline", "important");
+      previewEl.style.setProperty("white-space", "normal", "important");
+      previewEl.style.setProperty("overflow", "visible", "important");
+    }
+    const replyContentEl = replyButton.querySelector(".ntv__native-user-card-reply-content");
+    if (replyContentEl instanceof HTMLElement) {
+      replyContentEl.style.setProperty("display", "inline", "important");
+      replyContentEl.style.setProperty("white-space", "normal", "important");
+      replyContentEl.style.setProperty("overflow", "visible", "important");
+      replyContentEl.style.setProperty("line-height", "1.45", "important");
+      replyContentEl.style.setProperty("--ntv-chat-message-emote-overlap", "0");
+      replyContentEl.style.setProperty("--ntv-chat-message-emote-overlap-compensation", "0");
+      const emoteBoxes = replyContentEl.querySelectorAll(".ntv__inline-emote-box");
+      for (const emoteBox of emoteBoxes) {
+        if (!(emoteBox instanceof HTMLElement)) continue;
+        emoteBox.style.setProperty("display", "inline-block", "important");
+        emoteBox.style.setProperty("vertical-align", "middle", "important");
+        emoteBox.style.setProperty("max-height", "1.05em", "important");
+        emoteBox.style.setProperty("height", "1.05em", "important");
+        emoteBox.style.setProperty("width", "auto", "important");
+        emoteBox.style.setProperty("margin", "0 .04em", "important");
+        emoteBox.style.setProperty("transform", "none", "important");
+      }
+    }
+    log28("KICK", "UI", `NTVCARD transformed native user card reply for ${replyTo.username || "unknown"}..`);
+    return true;
+  }
+  transformNativeUserCardReplyButtons(rootEl = document.body) {
+    if (!(rootEl instanceof HTMLElement)) return;
+    const replyButtons = rootEl.querySelectorAll("button");
+    for (const replyButton of replyButtons) {
+      if (!(replyButton instanceof HTMLElement)) continue;
+      const replyText = (replyButton.textContent || "").replace(/\s+/g, " ").trim();
+      if (!/^Replying to\s+.+?:\s*/i.test(replyText)) continue;
+      this.transformNativeUserCardReplyButton(replyButton);
+    }
+  }
+  observeNativeUserCardReplies() {
+    if (this.nativeUserCardReplyObserver) return;
+    this.nativeUserCardReplyObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          this.transformNativeUserCardReplyButtons(node);
+        }
+      }
+    });
+    this.nativeUserCardReplyObserver.observe(document.body, { childList: true, subtree: true });
+    log28("KICK", "UI", "NTVCARD native user card reply observer ready");
+    this.transformNativeUserCardReplyButtons(document.body);
+  }
   prepareMessageForRendering(messageEl) {
     const settingsManager = this.rootContext.settingsManager;
     const channelData = this.session.channelData;
@@ -25906,6 +26342,121 @@ var KickUserInterface = class extends AbstractUserInterface {
     const { emotesManager, usersManager } = this.session;
     const { channelData } = this.session;
     const channelId = channelData.channelId;
+    const parseContentNodes = (containerNode, parsedParts) => {
+      if (!(containerNode instanceof HTMLElement)) return;
+      for (const contentNode of containerNode.childNodes) {
+        if (contentNode.nodeType === Node.TEXT_NODE) {
+          emotesManager.parseEmoteText(contentNode.textContent || "", parsedParts);
+        } else if (contentNode instanceof HTMLElement && contentNode.tagName === "SPAN") {
+          const imgEl = contentNode.querySelector("img");
+          if (!imgEl || imgEl instanceof HTMLImageElement === false) {
+            if (contentNode.childNodes.length) {
+              parsedParts.push(contentNode.cloneNode(true));
+            }
+            continue;
+          }
+          const emoteId = contentNode.getAttribute("data-emote-id");
+          const emoteName = contentNode.getAttribute("data-emote-name");
+          if (!emoteId || !emoteName) {
+            parsedParts.push(contentNode.cloneNode(true));
+            continue;
+          }
+          let emote = emotesManager.getEmoteByName(emoteName);
+          if (!emote) {
+            emote = {
+              id: emoteId,
+              name: emoteName,
+              isSubscribersOnly: true,
+              provider: 1 /* KICK */
+            };
+          }
+          parsedParts.push({
+            type: "emote",
+            emote
+          });
+        } else {
+          parsedParts.push(contentNode.cloneNode(true));
+        }
+      }
+    };
+    const createReplyPreviewElement = (replyNode) => {
+      if (!(replyNode instanceof HTMLElement)) return null;
+      const replyText = (replyNode.textContent || "").replace(/\s+/g, " ").trim();
+      const replyMatch = replyText.match(/^Replying to\s+(.+?):\s*(.*)$/i);
+      const replyUsername = (replyMatch?.[1] || "").trim();
+      const replyContentText = (replyMatch?.[2] || "").trim();
+      const replyContentSourceNode =
+        replyNode.querySelector("span.inline") ||
+        Array.from(replyNode.querySelectorAll("span")).at(-1) ||
+        replyNode;
+      const replyPreviewEl = document.createElement("div");
+      replyPreviewEl.className = "ntv__chat-message__reply";
+      const replyLabelEl = document.createElement("span");
+      replyLabelEl.className = "ntv__chat-message__reply-label";
+      replyLabelEl.textContent = "Replying to ";
+      replyPreviewEl.append(replyLabelEl);
+      if (replyUsername) {
+        const replyUsernameEl = document.createElement("span");
+        replyUsernameEl.className = "ntv__chat-message__reply-username";
+        replyUsernameEl.textContent = replyUsername;
+        replyPreviewEl.append(replyUsernameEl);
+      }
+      const replySeparatorEl = document.createElement("span");
+      replySeparatorEl.className = "ntv__chat-message__reply-separator";
+      replySeparatorEl.textContent = ": ";
+      replyPreviewEl.append(replySeparatorEl);
+      const replyParts = [];
+      const parseReplyPreviewNode = (currentNode) => {
+        if (currentNode.nodeType === Node.TEXT_NODE) {
+          const text = currentNode.textContent || "";
+          if (!text) return;
+          emotesManager.parseEmoteText(text, replyParts);
+          return;
+        }
+        if (!(currentNode instanceof HTMLElement)) return;
+        if (currentNode.tagName === "SVG" || currentNode.namespaceURI === "http://www.w3.org/2000/svg") return;
+        if (currentNode.tagName === "BR") {
+          replyParts.push(" ");
+          return;
+        }
+        const emoteId = currentNode.getAttribute("data-emote-id");
+        const emoteName = currentNode.getAttribute("data-emote-name");
+        if (emoteId && emoteName && currentNode.querySelector("img")) {
+          let emote = emotesManager.getEmoteByName(emoteName);
+          if (!emote) {
+            emote = {
+              id: emoteId,
+              name: emoteName,
+              isSubscribersOnly: true,
+              provider: 1 /* KICK */
+            };
+          }
+          replyParts.push({
+            type: "emote",
+            emote
+          });
+          return;
+        }
+        for (const childNode of currentNode.childNodes) {
+          parseReplyPreviewNode(childNode);
+        }
+      };
+      if (replyContentSourceNode instanceof HTMLElement) {
+        for (const childNode of replyContentSourceNode.childNodes) {
+          parseReplyPreviewNode(childNode);
+        }
+      }
+      if (!replyParts.length && replyContentText) {
+        emotesManager.parseEmoteText(replyContentText, replyParts);
+      }
+      const replyContentEl = document.createElement("span");
+      replyContentEl.className = "ntv__chat-message__reply-content";
+      if (replyParts.length) {
+        replyContentEl.append(...this.renderMessageParts(replyParts));
+      }
+      replyPreviewEl.append(replySeparatorEl, replyContentEl);
+      return replyPreviewEl;
+    };
     if (!messageNode.children || !messageNode.firstElementChild.classList.contains("group")) {
       messageNode.classList.add("ntv__chat-message");
       messageNode.classList.remove("ntv__chat-message--unrendered");
@@ -25945,13 +26496,15 @@ var KickUserInterface = class extends AbstractUserInterface {
     if (messageHasMentionedMe) {
       messageNode.classList.add("ntv__chat-message--mentioned-me");
     }
-    // Reply messages: skip NTV processing entirely, let Kick render them natively.
-    if (betterHoverEl.firstElementChild?.classList.contains("w-full")) {
-      markMessageAsSkipped("reply-native");
-      return;
-    }
-    const isReply = false;
+    const firstContentChild = betterHoverEl.firstElementChild;
+    const firstContentText = (firstContentChild?.textContent || "").replace(/\s+/g, " ").trim();
+    const looksLikeReplyPreview = !!firstContentChild && (
+      firstContentText.toLowerCase().startsWith("replying to ") ||
+      !!firstContentChild.querySelector('button[title], a[title]')
+    );
+    const isReply = looksLikeReplyPreview;
     const isReplyToMe = false;
+    const replyPreviewNode = isReply ? firstContentChild : null;
     const messageBodyWrapper = isReply ? betterHoverEl.lastElementChild : betterHoverEl;
     if (!messageBodyWrapper) {
       markMessageAsSkipped("Chat message body wrapper node not found", messageNode);
@@ -25987,12 +26540,12 @@ var KickUserInterface = class extends AbstractUserInterface {
         });
       }
     }
-    // For reply messages, Kick appends the reply reference as an extra <span> at the end
-    // of messageBodyWrapper, so span:last-of-type lands on the reply ref (wrong).
-    // The actual message content is in span:nth-last-of-type(2) for reply messages.
-    const contentWrapperNode = messageBodyWrapper.querySelector(
-      isReply ? "span:nth-last-of-type(2)" : "span:last-of-type"
+    // Kick nests extra spans inside reply rows, so we only want direct child spans here.
+    // For replies, the last direct span is the reply reference and the second-last is the actual message body.
+    const directSpanChildren = Array.from(messageBodyWrapper.children).filter(
+      (node) => node instanceof HTMLSpanElement
     );
+    const contentWrapperNode = directSpanChildren[isReply ? directSpanChildren.length - 2 : directSpanChildren.length - 1] || null;
     if (!contentWrapperNode) {
       markMessageAsSkipped("Chat message content wrapper node not found", messageNode);
       return;
@@ -26095,41 +26648,10 @@ var KickUserInterface = class extends AbstractUserInterface {
     }
     if (ntvModBtnsWrapperEl) ntvIdentityWrapperEl.append(ntvModBtnsWrapperEl);
     ntvIdentityWrapperEl.append(ntvTimestampEl, ntvBadgesEl, ntvUsernameEl, ntvSeparatorEl);
+    messageObject.isReply = isReply;
+    messageObject.isReplyToMe = isReplyToMe;
     const messageParts = [];
-    for (const contentNode of contentWrapperNode.childNodes) {
-      if (contentNode.nodeType === Node.TEXT_NODE) {
-        emotesManager.parseEmoteText(contentNode.textContent || "", messageParts);
-      } else if (contentNode instanceof HTMLElement && contentNode.tagName === "SPAN") {
-        const imgEl = contentNode.querySelector("img");
-        if (!imgEl || imgEl instanceof HTMLImageElement === false) {
-          if (contentNode.childNodes.length) {
-            messageParts.push(contentNode.cloneNode(true));
-          }
-          continue;
-        }
-        const emoteId = contentNode.getAttribute("data-emote-id");
-        const emoteName = contentNode.getAttribute("data-emote-name");
-        if (!emoteId || !emoteName) {
-          messageParts.push(contentNode.cloneNode(true));
-          continue;
-        }
-        let emote = emotesManager.getEmoteByName(emoteName);
-        if (!emote) {
-          emote = {
-            id: emoteId,
-            name: emoteName,
-            isSubscribersOnly: true,
-            provider: 1 /* KICK */
-          };
-        }
-        messageParts.push({
-          type: "emote",
-          emote
-        });
-      } else {
-        messageParts.push(contentNode.cloneNode(true));
-      }
-    }
+    parseContentNodes(contentWrapperNode, messageParts);
     const clipAttachmentEl = contentWrapperNode.nextElementSibling;
     if (clipAttachmentEl && clipAttachmentEl.nodeName === "BUTTON") {
       const clipPreviewBtnEl = clipAttachmentEl.cloneNode(true);
@@ -26147,6 +26669,12 @@ var KickUserInterface = class extends AbstractUserInterface {
     groupElementNode.style.display = "none";
     this.rootContext.renderMessagePipeline.process(messageObject, ntvBadgesEl, ntvUsernameEl, messageParts);
     ntvMessageInnerEl.className = "ntv__chat-message__inner";
+    const replyPreviewEl = createReplyPreviewElement(replyPreviewNode);
+    if (replyPreviewEl) {
+      replyPreviewNode.style.setProperty("display", "none", "important");
+      ntvMessageInnerEl.append(replyPreviewEl);
+      messageNode.classList.add("ntv__chat-message--reply");
+    }
     ntvMessageInnerEl.append(ntvIdentityWrapperEl);
     ntvMessageInnerEl.append(...this.renderMessageParts(messageParts));
     messageNode.append(ntvMessageInnerEl);
