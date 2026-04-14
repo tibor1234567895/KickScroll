@@ -8,7 +8,7 @@ const GM_getValue = (key, defaultVal) => {
     try { return JSON.parse(localStorage.getItem('nipah_' + key)) || defaultVal; } catch { return defaultVal; }
 };
 const unsafeWindow = window;
-console.warn("[NipahTV] userscript loaded");
+// console.warn("[NipahTV] userscript loaded");
 // ==UserScript==
 // @name NipahTV
 // @namespace https://github.com/Xzensi/NipahTV
@@ -19939,6 +19939,9 @@ var UserInfoModal = class extends AbstractModal {
   onOpenNativeCard;
   onToggleHighlight;
   isUserHighlighted;
+  getHighlightStyleInfo;
+  setHighlightPreset;
+  updateHighlightStyle;
   username;
   userInfo;
   userChannelInfo;
@@ -19959,6 +19962,13 @@ var UserInfoModal = class extends AbstractModal {
   modLogsPageEl;
   timeoutSliderComponent;
   resizeHandleEl;
+  actionHighlightPresetEl;
+  actionHighlightColorEl;
+  actionHighlightIntensityEl;
+  actionHighlightOpacityEl;
+  actionHighlightScopeEl;
+  actionHighlightIntensityValueEl;
+  actionHighlightOpacityValueEl;
   historyReplyObserver = null;
   messagesHistoryCursor = 0;
   isLoadingMessages = false;
@@ -19970,7 +19980,10 @@ var UserInfoModal = class extends AbstractModal {
     toaster,
     onOpenNativeCard,
     onToggleHighlight,
-    isUserHighlighted
+    isUserHighlighted,
+    getHighlightStyleInfo,
+    setHighlightPreset,
+    updateHighlightStyle
   }, username, coordinates) {
     const channelId = session.channelData?.channelId || "shared";
     const configuredWidth = parseInt(rootContext.settingsManager.getSetting("shared", "chat.user_info_modal.width") || "340", 10);
@@ -20002,6 +20015,9 @@ var UserInfoModal = class extends AbstractModal {
     this.onOpenNativeCard = onOpenNativeCard;
     this.onToggleHighlight = onToggleHighlight;
     this.isUserHighlighted = isUserHighlighted;
+    this.getHighlightStyleInfo = getHighlightStyleInfo;
+    this.setHighlightPreset = setHighlightPreset;
+    this.updateHighlightStyle = updateHighlightStyle;
     this.username = username;
   }
   init() {
@@ -20070,6 +20086,9 @@ var UserInfoModal = class extends AbstractModal {
 								<path fill="currentColor" d="m12 17.27l6.18 3.73l-1.64-7.03L22 9.24l-7.19-.61L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21z"/>
 							</svg>
 						</button>
+						<button class="ntv__icon-button ntv__user-info-modal__header__action ntv__user-info-modal__header__action--edit-highlight" ntv-tooltip="Edit Highlight Style">
+							<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 21 21"><g fill="none" fill-rule="evenodd" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" transform="translate(3 3)"><path d="M14.5 2.5l-9 9l-3 3l3-3l9-9a1.5 1.5 0 0 0-2-2m-8 8l2 2"/></g></svg>
+						</button>
 						<button class="ntv__icon-button ntv__user-info-modal__header__action ntv__user-info-modal__header__action--native" ntv-tooltip="Open Native User Card">
 							<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
 								<path fill="currentColor" d="M14 3h7v7h-2V6.41l-9.29 9.3l-1.42-1.42l9.3-9.29H14zm5 14v4H3V5h4v2H5v12h12v-2z"/>
@@ -20110,6 +20129,35 @@ var UserInfoModal = class extends AbstractModal {
         usersManager.hasMutedUser(userInfo.username) ? "Unmute" : "Mute"}</button>
 					<!--<button class="ntv__button ntv__user-info-modal__Report">Report</button>-->
 				</div>
+				<div class="ntv__user-info-modal__highlight-panel" style="display: none;">
+					<div class="ntv__user-info-modal__highlight-panel__header">
+						<h5>Highlight Style</h5>
+						<span class="ntv__user-info-modal__highlight-panel__scope"></span>
+					</div>
+					<div class="ntv__user-info-modal__highlight-panel__grid">
+						<label class="ntv__user-info-modal__highlight-field">
+							<span>Preset</span>
+							<select class="ntv__user-info-modal__highlight-preset">
+								<option value="preset1">Preset 1</option>
+								<option value="preset2">Preset 2</option>
+								<option value="preset3">Preset 3</option>
+								<option value="custom">Custom</option>
+							</select>
+						</label>
+						<label class="ntv__user-info-modal__highlight-field ntv__user-info-modal__highlight-field--color">
+							<span>Color</span>
+							<input class="ntv__user-info-modal__highlight-color" type="color" value="#4f95ff">
+						</label>
+						<label class="ntv__user-info-modal__highlight-field">
+							<span>Intensity <strong class="ntv__user-info-modal__highlight-intensity-value">95%</strong></span>
+							<input class="ntv__user-info-modal__highlight-intensity" type="range" min="10" max="100" step="1" value="95">
+						</label>
+						<label class="ntv__user-info-modal__highlight-field">
+							<span>Opacity <strong class="ntv__user-info-modal__highlight-opacity-value">16%</strong></span>
+							<input class="ntv__user-info-modal__highlight-opacity" type="range" min="4" max="100" step="1" value="16">
+						</label>
+					</div>
+				</div>
 				<div class="ntv__user-info-modal__history">
 					<div class="ntv__user-info-modal__history__header">LIVE</div>
 					<div class="ntv__user-info-modal__history__messages" loading>
@@ -20132,6 +20180,15 @@ var UserInfoModal = class extends AbstractModal {
       ".ntv__user-info-modal__actions .ntv__user-info-modal__follow"
     );
     this.actionHighlightEl = element.querySelector(".ntv__user-info-modal__header__action--highlight");
+    this.actionEditHighlightEl = element.querySelector(".ntv__user-info-modal__header__action--edit-highlight");
+    this.highlightPanelEl = element.querySelector(".ntv__user-info-modal__highlight-panel");
+    this.actionHighlightPresetEl = element.querySelector(".ntv__user-info-modal__highlight-preset");
+    this.actionHighlightColorEl = element.querySelector(".ntv__user-info-modal__highlight-color");
+    this.actionHighlightIntensityEl = element.querySelector(".ntv__user-info-modal__highlight-intensity");
+    this.actionHighlightOpacityEl = element.querySelector(".ntv__user-info-modal__highlight-opacity");
+    this.actionHighlightScopeEl = element.querySelector(".ntv__user-info-modal__highlight-panel__scope");
+    this.actionHighlightIntensityValueEl = element.querySelector(".ntv__user-info-modal__highlight-intensity-value");
+    this.actionHighlightOpacityValueEl = element.querySelector(".ntv__user-info-modal__highlight-opacity-value");
     this.actionOpenNativeEl = element.querySelector(".ntv__user-info-modal__header__action--native");
     this.actionMuteEl = element.querySelector(
       ".ntv__user-info-modal__actions .ntv__user-info-modal__mute"
@@ -20199,6 +20256,7 @@ var UserInfoModal = class extends AbstractModal {
       modLogsEl.appendChild(this.modLogsMessagesEl);
     }
     this.modalBodyEl.appendChild(element);
+    this.refreshHighlightControls();
     this.updateGiftSubButton();
     this.bindNativeHistoryReplyTransform();
     try {
@@ -20214,6 +20272,16 @@ var UserInfoModal = class extends AbstractModal {
     this.actionFollowEl?.addEventListener("click", this.clickFollowHandler.bind(this));
     this.actionMuteEl?.addEventListener("click", this.clickMuteHandler.bind(this));
     this.actionHighlightEl?.addEventListener("click", this.clickHighlightHandler.bind(this));
+    this.actionEditHighlightEl?.addEventListener("click", () => {
+      if (this.highlightPanelEl) {
+        this.highlightPanelEl.style.display = this.highlightPanelEl.style.display === "none" ? "block" : "none";
+        this.actionEditHighlightEl.toggleAttribute("active", this.highlightPanelEl.style.display !== "none");
+      }
+    });
+    this.actionHighlightPresetEl?.addEventListener("change", this.changeHighlightPresetHandler.bind(this));
+    this.actionHighlightColorEl?.addEventListener("input", this.inputHighlightStyleHandler.bind(this));
+    this.actionHighlightIntensityEl?.addEventListener("input", this.inputHighlightStyleHandler.bind(this));
+    this.actionHighlightOpacityEl?.addEventListener("input", this.inputHighlightStyleHandler.bind(this));
     this.actionOpenNativeEl?.addEventListener("click", this.clickOpenNativeHandler.bind(this));
     this.actionReportEl?.addEventListener("click", () => {
       log18("CORE", "UI", "Report button clicked");
@@ -20243,12 +20311,71 @@ var UserInfoModal = class extends AbstractModal {
   async clickOpenNativeHandler() {
     this.onOpenNativeCard?.();
   }
+  refreshHighlightControls() {
+    const currentUsername = this.userInfo?.username || this.username;
+    const highlightInfo = this.getHighlightStyleInfo?.(currentUsername);
+    if (!highlightInfo) return;
+    const { presetKey, style, targetLabel, isHighlighted } = highlightInfo;
+    if (this.actionHighlightPresetEl) {
+      this.actionHighlightPresetEl.value = presetKey;
+    }
+    if (this.actionHighlightColorEl) {
+      this.actionHighlightColorEl.value = style.color;
+    }
+    if (this.actionHighlightIntensityEl) {
+      this.actionHighlightIntensityEl.value = `${style.intensity}`;
+    }
+    if (this.actionHighlightOpacityEl) {
+      this.actionHighlightOpacityEl.value = `${style.opacity}`;
+    }
+    if (this.actionHighlightIntensityValueEl) {
+      this.actionHighlightIntensityValueEl.textContent = `${style.intensity}%`;
+    }
+    if (this.actionHighlightOpacityValueEl) {
+      this.actionHighlightOpacityValueEl.textContent = `${style.opacity}%`;
+    }
+    if (this.actionHighlightScopeEl) {
+      this.actionHighlightScopeEl.textContent = targetLabel;
+    }
+    this.updateHighlightButtonAppearance(style, isHighlighted);
+  }
+  updateHighlightButtonAppearance(style, isHighlighted) {
+    const buttonEl = this.actionHighlightEl;
+    if (!(buttonEl instanceof HTMLElement)) return;
+    const [r, g, b] = hex2rgb(style.color);
+    const opacity = Math.max(0.04, Math.min(1, style.opacity / 100));
+    const intensity = Math.max(0.2, Math.min(1, style.intensity / 100));
+    this.element?.style.setProperty("--ntv-user-highlight-rgb", `${r}, ${g}, ${b}`);
+    this.element?.style.setProperty("--ntv-user-highlight-color", style.color);
+    this.element?.style.setProperty("--ntv-user-highlight-opacity", `${opacity}`);
+    this.element?.style.setProperty("--ntv-user-highlight-intensity", `${intensity}`);
+    buttonEl.style.setProperty("--ntv-user-highlight-rgb", `${r}, ${g}, ${b}`);
+    buttonEl.style.setProperty("--ntv-user-highlight-color", style.color);
+    buttonEl.style.setProperty("--ntv-user-highlight-opacity", `${opacity}`);
+    buttonEl.style.setProperty("--ntv-user-highlight-intensity", `${intensity}`);
+    if (isHighlighted) buttonEl.setAttribute("active", "");
+    else buttonEl.removeAttribute("active");
+  }
+  async changeHighlightPresetHandler() {
+    const currentUsername = this.userInfo?.username || this.username;
+    const presetKey = this.actionHighlightPresetEl?.value || "preset1";
+    this.setHighlightPreset?.(currentUsername, presetKey);
+    this.refreshHighlightControls();
+  }
+  async inputHighlightStyleHandler() {
+    const currentUsername = this.userInfo?.username || this.username;
+    this.updateHighlightStyle?.(currentUsername, {
+      color: this.actionHighlightColorEl?.value,
+      intensity: Number(this.actionHighlightIntensityEl?.value || 95),
+      opacity: Number(this.actionHighlightOpacityEl?.value || 16)
+    });
+    this.refreshHighlightControls();
+  }
   async clickHighlightHandler() {
     const { userInfo } = this;
     if (!userInfo || !this.actionHighlightEl) return;
     const isHighlighted = this.onToggleHighlight?.(userInfo.username);
-    if (isHighlighted) this.actionHighlightEl.setAttribute("active", "");
-    else this.actionHighlightEl.removeAttribute("active");
+    this.refreshHighlightControls();
   }
   async clickFollowHandler() {
     const { networkInterface } = this.session;
@@ -20620,9 +20747,7 @@ var UserInfoModal = class extends AbstractModal {
     const fallbackMessages = [];
     for (const messageEl of renderedMessages) {
       if (!(messageEl instanceof HTMLElement)) continue;
-      const usernameEl = messageEl.querySelector(".ntv__chat-message__username");
-      if (!(usernameEl instanceof HTMLElement)) continue;
-      const messageUsername = (usernameEl.getAttribute("title") || usernameEl.textContent || "").trim().toLowerCase();
+      const messageUsername = this.getRenderedMessageUsername(messageEl);
       if (!messageUsername || messageUsername !== username) continue;
       const content = Array.from(messageEl.querySelectorAll(".ntv__chat-message__part")).map(
         (node) => this.extractTextFromMessagePartNode(node)
@@ -20889,10 +21014,6 @@ var UserInfoModal = class extends AbstractModal {
     const previewEl = this.createHistoryReplyPreviewElement(replyPreview);
     if (!previewEl) return false;
     replyButton.append(previewEl);
-    console.warn("[NipahTV] transformed native history reply", {
-      username: replyPreview.username,
-      contentPreview: replyPreview.content.slice(0, 80)
-    });
     return true;
   }
   transformNativeHistoryReplyNodes(rootEl = this.messagesHistoryEl) {
@@ -20918,7 +21039,6 @@ var UserInfoModal = class extends AbstractModal {
         }
       });
       this.historyReplyObserver.observe(historyEl, { childList: true, subtree: true });
-      console.warn("[NipahTV] history reply observer ready");
     }
     this.transformNativeHistoryReplyNodes(historyEl);
   }
@@ -21939,7 +22059,10 @@ var AbstractUserInterface = class {
         toaster: this.toaster,
         onOpenNativeCard: () => this.pendingNativeCardOpenHandler?.(),
         onToggleHighlight: this.toggleHighlightedUser.bind(this),
-        isUserHighlighted: this.isUserHighlighted.bind(this)
+        isUserHighlighted: this.isUserHighlighted.bind(this),
+        getHighlightStyleInfo: this.getHighlightStyleInfo.bind(this),
+        setHighlightPreset: this.setHighlightPreset.bind(this),
+        updateHighlightStyle: this.updateHighlightStyle.bind(this)
       },
       username,
       position
@@ -24331,10 +24454,17 @@ var VerticalMenuComponent = class extends AbstractComponent {
 // src/Sites/Kick/KickUserInterface.ts
 var logger29 = new Logger();
 var { log: log28, info: info26, error: error29 } = logger29.destruct();
+var DEFAULT_USER_HIGHLIGHT_PRESETS = {
+  preset1: { color: "#4f95ff", intensity: 95, opacity: 16 },
+  preset2: { color: "#ffc857", intensity: 88, opacity: 18 },
+  preset3: { color: "#ff5d8f", intensity: 92, opacity: 20 }
+};
 var KickUserInterface = class extends AbstractUserInterface {
   abortController = new AbortController();
   domEventManager = new DOMEventManager();
   highlightedUsernames = /* @__PURE__ */ new Set();
+  highlightedUserConfigs = /* @__PURE__ */ new Map();
+  highlightPresets = JSON.parse(JSON.stringify(DEFAULT_USER_HIGHLIGHT_PRESETS));
   pendingNativeCardOpenHandler = null;
   chatObserver = null;
   vodChatroomObserver = null;
@@ -24378,16 +24508,198 @@ var KickUserInterface = class extends AbstractUserInterface {
   constructor(rootContext, session) {
     super(rootContext, session);
   }
+  cloneHighlightPresets() {
+    return JSON.parse(JSON.stringify(DEFAULT_USER_HIGHLIGHT_PRESETS));
+  }
+  getHighlightConfigStorageKeys() {
+    return this.getHighlightedUsersStorageKeys().map((storageKey) => `${storageKey}_config`);
+  }
+  getHighlightPresetStorageKeys() {
+    return this.getHighlightedUsersStorageKeys().map((storageKey) => `${storageKey}_presets`);
+  }
+  normalizeHighlightNumber(value, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(0, Math.min(100, Math.round(parsed)));
+  }
+  normalizeHighlightColor(color, fallback) {
+    if (typeof color !== "string") return fallback;
+    const trimmed = color.trim();
+    if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(trimmed)) {
+      return `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`.toLowerCase();
+    }
+    return fallback;
+  }
+  normalizeHighlightStyle(style, fallbackStyle = DEFAULT_USER_HIGHLIGHT_PRESETS.preset1) {
+    const fallback = fallbackStyle || DEFAULT_USER_HIGHLIGHT_PRESETS.preset1;
+    return {
+      color: this.normalizeHighlightColor(style?.color, fallback.color),
+      intensity: this.normalizeHighlightNumber(style?.intensity, fallback.intensity),
+      opacity: this.normalizeHighlightNumber(style?.opacity, fallback.opacity)
+    };
+  }
+  normalizeHighlightPresetKey(presetKey) {
+    return presetKey === "preset2" || presetKey === "preset3" || presetKey === "custom" ? presetKey : "preset1";
+  }
+  normalizeUserHighlightConfig(config) {
+    const presetKey = this.normalizeHighlightPresetKey(config?.presetKey);
+    const fallbackStyle = this.highlightPresets[presetKey === "custom" ? "preset1" : presetKey] || DEFAULT_USER_HIGHLIGHT_PRESETS.preset1;
+    return {
+      presetKey,
+      customStyle: this.normalizeHighlightStyle(config?.customStyle || {}, fallbackStyle)
+    };
+  }
+  loadHighlightConfigurations() {
+    this.highlightPresets = this.cloneHighlightPresets();
+    this.highlightedUserConfigs = /* @__PURE__ */ new Map();
+    try {
+      for (const storageKey of this.getHighlightPresetStorageKeys()) {
+        const stored = localStorage.getItem(storageKey);
+        if (!stored) continue;
+        const parsed = JSON.parse(stored);
+        if (!parsed || typeof parsed !== "object") continue;
+        for (const presetKey of Object.keys(DEFAULT_USER_HIGHLIGHT_PRESETS)) {
+          if (!parsed[presetKey]) continue;
+          const fallbackStyle = DEFAULT_USER_HIGHLIGHT_PRESETS[presetKey];
+          this.highlightPresets[presetKey] = this.normalizeHighlightStyle(parsed[presetKey], fallbackStyle);
+        }
+      }
+      for (const storageKey of this.getHighlightConfigStorageKeys()) {
+        const stored = localStorage.getItem(storageKey);
+        if (!stored) continue;
+        const parsed = JSON.parse(stored);
+        if (!parsed || typeof parsed !== "object") continue;
+        for (const [username, config] of Object.entries(parsed)) {
+          const normalizedUsername = this.normalizeHighlightedUsername(username);
+          if (!normalizedUsername) continue;
+          this.highlightedUserConfigs.set(normalizedUsername, this.normalizeUserHighlightConfig(config));
+        }
+      }
+    } catch (err) {
+      error29("KICK", "UI", "Failed to load highlight configurations", err);
+    }
+  }
+  persistHighlightConfigurations() {
+    try {
+      const serializedPresets = JSON.stringify(this.highlightPresets);
+      const serializedConfigs = JSON.stringify(Object.fromEntries(this.highlightedUserConfigs.entries()));
+      for (const storageKey of this.getHighlightPresetStorageKeys()) {
+        localStorage.setItem(storageKey, serializedPresets);
+      }
+      for (const storageKey of this.getHighlightConfigStorageKeys()) {
+        localStorage.setItem(storageKey, serializedConfigs);
+      }
+    } catch (err) {
+      error29("KICK", "UI", "Failed to persist highlight configurations", err);
+    }
+  }
+  getUserHighlightConfig(username) {
+    const normalizedUsername = this.normalizeHighlightedUsername(username);
+    const storedConfig = this.highlightedUserConfigs.get(normalizedUsername);
+    return this.normalizeUserHighlightConfig(storedConfig || { presetKey: "preset1", customStyle: this.highlightPresets.preset1 });
+  }
+  getResolvedHighlightStyle(username) {
+    const config = this.getUserHighlightConfig(username);
+    if (config.presetKey === "custom") {
+      return this.normalizeHighlightStyle(config.customStyle, this.highlightPresets.preset1);
+    }
+    return this.normalizeHighlightStyle(this.highlightPresets[config.presetKey], DEFAULT_USER_HIGHLIGHT_PRESETS[config.presetKey]);
+  }
+  getHighlightStyleInfo(username) {
+    const config = this.getUserHighlightConfig(username);
+    const resolvedStyle = this.getResolvedHighlightStyle(username);
+    const presetLabels = {
+      preset1: "Editing preset 1",
+      preset2: "Editing preset 2",
+      preset3: "Editing preset 3",
+      custom: "Editing custom style"
+    };
+    return {
+      presetKey: config.presetKey,
+      style: resolvedStyle,
+      presets: JSON.parse(JSON.stringify(this.highlightPresets)),
+      targetLabel: presetLabels[config.presetKey] || presetLabels.preset1,
+      isHighlighted: this.isUserHighlighted(username)
+    };
+  }
+  applyHighlightStyleToElement(messageEl, style) {
+    if (!(messageEl instanceof HTMLElement)) return;
+    const [r, g, b] = hex2rgb(style.color);
+    const opacity = Math.max(0.04, Math.min(1, style.opacity / 100));
+    const intensity = Math.max(0.2, Math.min(1, style.intensity / 100));
+    const highlightWidth = `${1 + Math.round(style.intensity / 35)}px`;
+    messageEl.style.setProperty("--ntv-user-highlight-rgb", `${r}, ${g}, ${b}`);
+    messageEl.style.setProperty("--ntv-user-highlight-color", style.color);
+    messageEl.style.setProperty("--ntv-user-highlight-opacity", `${opacity}`);
+    messageEl.style.setProperty("--ntv-user-highlight-intensity", `${intensity}`);
+    messageEl.style.setProperty("--ntv-user-highlight-width", highlightWidth);
+  }
+  clearHighlightStyleFromElement(messageEl) {
+    if (!(messageEl instanceof HTMLElement)) return;
+    messageEl.style.removeProperty("--ntv-user-highlight-rgb");
+    messageEl.style.removeProperty("--ntv-user-highlight-color");
+    messageEl.style.removeProperty("--ntv-user-highlight-opacity");
+    messageEl.style.removeProperty("--ntv-user-highlight-intensity");
+    messageEl.style.removeProperty("--ntv-user-highlight-width");
+  }
+  refreshHighlightedMessages() {
+    document.querySelectorAll(".ntv__chat-message").forEach((messageEl) => {
+      if (!(messageEl instanceof HTMLElement)) return;
+      const messageUsername = this.getRenderedMessageUsername(messageEl);
+      if (!messageUsername || !this.highlightedUsernames.has(messageUsername)) {
+        messageEl.classList.remove("ntv__chat-message--user-highlighted");
+        this.clearHighlightStyleFromElement(messageEl);
+        return;
+      }
+      messageEl.classList.add("ntv__chat-message--user-highlighted");
+      this.applyHighlightStyleToElement(messageEl, this.getResolvedHighlightStyle(messageUsername));
+    });
+  }
+  setHighlightPreset(username, presetKey) {
+    const normalizedUsername = this.normalizeHighlightedUsername(username);
+    if (!normalizedUsername) return;
+    const currentConfig = this.getUserHighlightConfig(normalizedUsername);
+    currentConfig.presetKey = this.normalizeHighlightPresetKey(presetKey);
+    this.highlightedUserConfigs.set(normalizedUsername, currentConfig);
+    this.persistHighlightConfigurations();
+    this.applyHighlightedUserState(normalizedUsername);
+  }
+  updateHighlightStyle(username, patch) {
+    const normalizedUsername = this.normalizeHighlightedUsername(username);
+    if (!normalizedUsername) return;
+    const currentConfig = this.getUserHighlightConfig(normalizedUsername);
+    if (currentConfig.presetKey === "custom") {
+      currentConfig.customStyle = this.normalizeHighlightStyle({ ...currentConfig.customStyle, ...patch }, currentConfig.customStyle);
+      this.highlightedUserConfigs.set(normalizedUsername, currentConfig);
+    } else {
+      const presetKey = currentConfig.presetKey;
+      const currentPreset = this.highlightPresets[presetKey] || DEFAULT_USER_HIGHLIGHT_PRESETS[presetKey];
+      this.highlightPresets[presetKey] = this.normalizeHighlightStyle({ ...currentPreset, ...patch }, currentPreset);
+    }
+    this.persistHighlightConfigurations();
+    this.refreshHighlightedMessages();
+  }
+  getHighlightedUsersStorageKeys() {
+    const channelName = this.normalizeHighlightedUsername(this.session.channelData?.channelName);
+    const channelId = `${this.session.channelData?.channelId || ""}`.trim();
+    const keyParts = [channelName, channelId].filter(Boolean);
+    if (!keyParts.length) keyParts.push("shared");
+    return Array.from(new Set(keyParts.map((keyPart) => `ntv_user_card_highlights_${NTV_PLATFORM}_${keyPart}`)));
+  }
   getHighlightedUsersStorageKey() {
-    const channelId = this.session.channelData?.channelId || "shared";
-    return `ntv_user_card_highlights_${NTV_PLATFORM}_${channelId}`;
+    return this.getHighlightedUsersStorageKeys()[0];
   }
   loadHighlightedUsers() {
     try {
-      const stored = localStorage.getItem(this.getHighlightedUsersStorageKey());
-      if (!stored) return;
-      const usernames = JSON.parse(stored);
-      if (!Array.isArray(usernames)) return;
+      const usernames = [];
+      for (const storageKey of this.getHighlightedUsersStorageKeys()) {
+        const stored = localStorage.getItem(storageKey);
+        if (!stored) continue;
+        const parsed = JSON.parse(stored);
+        if (!Array.isArray(parsed)) continue;
+        usernames.push(...parsed);
+      }
       this.highlightedUsernames = new Set(
         usernames.map((username) => this.normalizeHighlightedUsername("" + username)).filter(Boolean)
       );
@@ -24397,16 +24709,24 @@ var KickUserInterface = class extends AbstractUserInterface {
   }
   persistHighlightedUsers() {
     try {
-      localStorage.setItem(
-        this.getHighlightedUsersStorageKey(),
-        JSON.stringify(Array.from(this.highlightedUsernames))
-      );
+      const serializedUsernames = JSON.stringify(Array.from(this.highlightedUsernames));
+      for (const storageKey of this.getHighlightedUsersStorageKeys()) {
+        localStorage.setItem(storageKey, serializedUsernames);
+      }
     } catch (err) {
       error29("KICK", "UI", "Failed to persist highlighted users", err);
     }
   }
   normalizeHighlightedUsername(username) {
     return (username || "").trim().toLowerCase();
+  }
+  getRenderedMessageUsername(messageEl) {
+    if (!(messageEl instanceof HTMLElement)) return "";
+    const storedUsername = messageEl.getAttribute("data-ntv-author");
+    if (storedUsername) return this.normalizeHighlightedUsername(storedUsername);
+    const usernameEl = messageEl.querySelector(".ntv__chat-message__username");
+    if (!(usernameEl instanceof HTMLElement)) return "";
+    return this.normalizeHighlightedUsername(usernameEl.getAttribute("title") || usernameEl.textContent || "");
   }
   isUserHighlighted(username) {
     return this.highlightedUsernames.has(this.normalizeHighlightedUsername(username));
@@ -24416,11 +24736,15 @@ var KickUserInterface = class extends AbstractUserInterface {
     if (!normalizedUsername) return;
     document.querySelectorAll(".ntv__chat-message").forEach((messageEl) => {
       if (!(messageEl instanceof HTMLElement)) return;
-      const usernameEl = messageEl.querySelector(".ntv__chat-message__username");
-      if (!(usernameEl instanceof HTMLElement)) return;
-      const messageUsername = this.normalizeHighlightedUsername(usernameEl.getAttribute("title") || usernameEl.textContent || "");
+      const messageUsername = this.getRenderedMessageUsername(messageEl);
       if (messageUsername !== normalizedUsername) return;
-      messageEl.classList.toggle("ntv__chat-message--user-highlighted", this.highlightedUsernames.has(normalizedUsername));
+      const isHighlighted = this.highlightedUsernames.has(normalizedUsername);
+      messageEl.classList.toggle("ntv__chat-message--user-highlighted", isHighlighted);
+      if (isHighlighted) {
+        this.applyHighlightStyleToElement(messageEl, this.getResolvedHighlightStyle(normalizedUsername));
+      } else {
+        this.clearHighlightStyleFromElement(messageEl);
+      }
     });
   }
   toggleHighlightedUser(username) {
@@ -24439,6 +24763,7 @@ var KickUserInterface = class extends AbstractUserInterface {
     info26("KICK", "UI", "Creating user interface..");
     super.loadInterface();
     this.loadHighlightedUsers();
+    this.loadHighlightConfigurations();
     const { abortController } = this;
     const { settingsManager, eventBus: rootEventBus } = this.rootContext;
     const { channelData, eventBus } = this.session;
@@ -25894,7 +26219,7 @@ var KickUserInterface = class extends AbstractUserInterface {
       if (ntvUsernameEl instanceof HTMLElement) {
         evt.preventDefault();
         evt.stopPropagation();
-        openUserInfoModalFromElement(ntvUsernameEl, ntvUsernameEl.textContent || ntvUsernameEl.getAttribute("title"));
+        openUserInfoModalFromElement(ntvUsernameEl, ntvUsernameEl.getAttribute("title") || ntvUsernameEl.textContent);
         return;
       }
       const replyMessageEl = target.closest('.ntv__chat-message[data-ntv-render-skipped="reply-native"]');
@@ -26214,7 +26539,7 @@ var KickUserInterface = class extends AbstractUserInterface {
     const replyShellEl = replyButton.parentElement;
     const replyRowEl = replyShellEl?.parentElement?.parentElement;
     const replyCardEl = replyShellEl?.parentElement;
-    const zeroSpacing = (el) => {
+    const normalizeRow = (el) => {
       if (!(el instanceof HTMLElement)) return;
       el.classList.add("ntv__native-user-card-reply-row");
       el.style.setProperty("padding-left", "0", "important");
@@ -26226,15 +26551,12 @@ var KickUserInterface = class extends AbstractUserInterface {
       el.style.setProperty("max-width", "100%", "important");
       el.style.setProperty("overflow", "visible", "important");
     };
-    zeroSpacing(replyRowEl);
-    zeroSpacing(replyCardEl);
+    normalizeRow(replyRowEl);
+    normalizeRow(replyCardEl);
     if (replyShellEl instanceof HTMLElement) {
       replyShellEl.classList.add("ntv__native-user-card-reply-shell");
       replyShellEl.style.setProperty("padding-left", "0", "important");
       replyShellEl.style.setProperty("padding-right", "0", "important");
-      replyShellEl.style.setProperty("margin-left", "0", "important");
-      replyShellEl.style.setProperty("margin-right", "0", "important");
-      replyShellEl.style.setProperty("box-sizing", "border-box", "important");
       replyShellEl.style.setProperty("width", "100%", "important");
       replyShellEl.style.setProperty("max-width", "100%", "important");
       replyShellEl.style.setProperty("overflow", "visible", "important");
@@ -26253,30 +26575,10 @@ var KickUserInterface = class extends AbstractUserInterface {
     const previewEl = this.createNativeUserCardReplyPreviewElement(replyTo, replyParts);
     if (!previewEl) return false;
     replyButton.append(previewEl);
-    if (previewEl instanceof HTMLElement) {
-      previewEl.style.setProperty("display", "inline", "important");
-      previewEl.style.setProperty("white-space", "normal", "important");
-      previewEl.style.setProperty("overflow", "visible", "important");
-    }
-    const replyContentEl = replyButton.querySelector(".ntv__native-user-card-reply-content");
-    if (replyContentEl instanceof HTMLElement) {
-      replyContentEl.style.setProperty("display", "inline", "important");
-      replyContentEl.style.setProperty("white-space", "normal", "important");
-      replyContentEl.style.setProperty("overflow", "visible", "important");
-      replyContentEl.style.setProperty("line-height", "1.45", "important");
-      replyContentEl.style.setProperty("--ntv-chat-message-emote-overlap", "0");
-      replyContentEl.style.setProperty("--ntv-chat-message-emote-overlap-compensation", "0");
-      const emoteBoxes = replyContentEl.querySelectorAll(".ntv__inline-emote-box");
-      for (const emoteBox of emoteBoxes) {
-        if (!(emoteBox instanceof HTMLElement)) continue;
-        emoteBox.style.setProperty("display", "inline-block", "important");
-        emoteBox.style.setProperty("vertical-align", "middle", "important");
-        emoteBox.style.setProperty("max-height", "1.05em", "important");
-        emoteBox.style.setProperty("height", "1.05em", "important");
-        emoteBox.style.setProperty("width", "auto", "important");
-        emoteBox.style.setProperty("margin", "0 .04em", "important");
-        emoteBox.style.setProperty("transform", "none", "important");
-      }
+    const nativeMessageBodyEl = replyShellEl?.querySelector(':scope > .w-full.min-w-0.shrink-0.break-words');
+    if (nativeMessageBodyEl instanceof HTMLElement) {
+      nativeMessageBodyEl.style.setProperty("display", "block", "important");
+      nativeMessageBodyEl.style.setProperty("overflow", "visible", "important");
     }
     log28("KICK", "UI", `NTVCARD transformed native user card reply for ${replyTo.username || "unknown"}..`);
     return true;
@@ -26598,8 +26900,9 @@ var KickUserInterface = class extends AbstractUserInterface {
       markMessageAsSkipped("Chat message username node not found", messageNode);
       return;
     }
-    const username = usernameEl.title;
+    const username = (usernameEl.title || usernameEl.textContent || "").trim();
     messageObject.username = username;
+    if (username) messageNode.setAttribute("data-ntv-author", username);
     messageObject.style.color = usernameEl.style.color;
     const ntvUsernameEl = document.createElement("span");
     ntvUsernameEl.className = "ntv__chat-message__username";
@@ -26613,6 +26916,7 @@ var KickUserInterface = class extends AbstractUserInterface {
       }
       if (this.isUserHighlighted(username)) {
         messageNode.classList.add("ntv__chat-message--user-highlighted");
+        this.applyHighlightStyleToElement(messageNode, this.getResolvedHighlightStyle(username));
       }
       if (!usersManager.hasSeenUser(username)) {
         const enableFirstMessageHighlight = settingsManager.getSetting(
@@ -29508,8 +29812,12 @@ var NipahClient = class {
           }
 
           .ntv__chat-message--user-highlighted {
-            background: linear-gradient(90deg, rgba(79, 149, 255, 0.16), rgba(79, 149, 255, 0.04));
-            box-shadow: inset 2px 0 0 rgba(79, 149, 255, 0.95);
+            background: linear-gradient(
+              90deg,
+              rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), var(--ntv-user-highlight-opacity, 0.16)),
+              rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), calc(var(--ntv-user-highlight-opacity, 0.16) * 0.25))
+            );
+            box-shadow: inset var(--ntv-user-highlight-width, 2px) 0 0 rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), var(--ntv-user-highlight-intensity, 0.95));
             border-radius: 6px;
           }
         `);
@@ -30495,8 +30803,13 @@ var NipahClient = class {
             flex: 0 0 auto !important;
           }
 
-          .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__history {
+          .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__highlight-panel {
             order: 3 !important;
+            flex: 0 0 auto !important;
+          }
+
+          .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__history {
+            order: 4 !important;
             display: flex !important;
             flex-direction: column !important;
             flex: 1 1 auto !important;
@@ -30522,7 +30835,7 @@ var NipahClient = class {
           }
 
           .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__mod-actions {
-            order: 4 !important;
+            order: 5 !important;
             flex: 0 0 auto !important;
           }
 
@@ -30530,10 +30843,139 @@ var NipahClient = class {
           .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__status-page,
           .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__mod-logs,
           .ntv__user-info-modal .ntv__modal__body > .ntv__user-info-modal__mod-logs-page {
-            order: 5 !important;
+            order: 6 !important;
             flex: 0 0 auto !important;
           }
-        `);      resolve(void 0);
+        `);
+        GM_addStyle(`
+          .ntv__user-info-modal__header__action--highlight {
+            border: 1px solid rgba(255, 255, 255, 0.16) !important;
+            color: rgba(255, 255, 255, 0.86) !important;
+            background: rgba(0, 0, 0, 0.38) !important;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+          }
+
+          .ntv__user-info-modal__header__action--highlight svg {
+            color: inherit !important;
+          }
+
+          .ntv__user-info-modal__header__action--highlight:hover {
+            transform: translateY(-1px);
+          }
+
+          .ntv__user-info-modal__header__action--highlight[active] {
+            color: var(--ntv-user-highlight-color, #4f95ff) !important;
+            background: rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), var(--ntv-user-highlight-opacity, 0.16)) !important;
+            border-color: rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), calc(var(--ntv-user-highlight-opacity, 0.16) + 0.2)) !important;
+            box-shadow:
+              inset 0 0 0 1px rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), calc(var(--ntv-user-highlight-opacity, 0.16) + 0.12)),
+              0 0 0 1px rgba(var(--ntv-user-highlight-rgb, 79, 149, 255), 0.08) !important;
+          }
+
+          .ntv__user-info-modal__highlight-panel {
+            background: rgba(13, 14, 18, 0.72) !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+            padding: 12px 1.6180339888em 14px !important;
+          }
+
+          .ntv__user-info-modal__highlight-panel__header {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            gap: 12px !important;
+            margin-bottom: 10px !important;
+          }
+
+          .ntv__user-info-modal__highlight-panel__header h5 {
+            margin: 0 !important;
+            font-size: 0.95rem !important;
+            font-weight: 700 !important;
+          }
+
+          .ntv__user-info-modal__highlight-panel__scope {
+            color: rgba(255, 255, 255, 0.62) !important;
+            font-size: 0.76rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.06em !important;
+          }
+
+          .ntv__user-info-modal__highlight-panel__grid {
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            gap: 10px 12px !important;
+            align-items: end !important;
+          }
+
+          .ntv__user-info-modal__highlight-field {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 6px !important;
+            min-width: 0 !important;
+          }
+
+          .ntv__user-info-modal__highlight-field span {
+            display: flex !important;
+            justify-content: space-between !important;
+            gap: 8px !important;
+            color: rgba(255, 255, 255, 0.78) !important;
+            font-size: 0.82rem !important;
+          }
+
+          .ntv__user-info-modal__highlight-field strong {
+            color: rgba(255, 255, 255, 0.96) !important;
+            font-weight: 700 !important;
+          }
+
+          .ntv__user-info-modal__highlight-field select,
+          .ntv__user-info-modal__highlight-field input[type="range"] {
+            width: 100% !important;
+          }
+
+          .ntv__user-info-modal__highlight-field select {
+            background: rgba(255, 255, 255, 0.06) !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            border-radius: 8px !important;
+            color: #fff !important;
+            padding: 8px 10px !important;
+          }
+
+          .ntv__user-info-modal__highlight-field option {
+            background: #17181d !important;
+            color: #fff !important;
+          }
+
+          .ntv__user-info-modal__highlight-field--color {
+            align-items: stretch !important;
+          }
+
+          .ntv__user-info-modal__highlight-color {
+            width: 56px !important;
+            min-width: 56px !important;
+            height: 40px !important;
+            border: 1px solid rgba(255, 255, 255, 0.14) !important;
+            border-radius: 10px !important;
+            background: rgba(255, 255, 255, 0.06) !important;
+            padding: 4px !important;
+            cursor: pointer !important;
+          }
+
+          .ntv__user-info-modal__highlight-field input[type="range"] {
+            accent-color: var(--ntv-user-highlight-color, #4f95ff) !important;
+            cursor: pointer !important;
+          }
+
+          @media (max-width: 640px) {
+            .ntv__user-info-modal__highlight-panel__grid {
+              grid-template-columns: minmax(0, 1fr) !important;
+            }
+
+            .ntv__user-info-modal__highlight-color {
+              width: 100% !important;
+            }
+          }
+        `);
+        resolve(void 0);
       }
     });
   }

@@ -273,34 +273,39 @@
             return;
         }
 
-        const emitVolumeSyncEvent = () => {
-            try {
-                video.dispatchEvent(new Event('volumechange'));
-            } catch (error) {
-                log.debug('Failed to dispatch volumechange sync event', error && error.message ? error.message : error);
-            }
-        };
-
         const currentlyMuted = Boolean(state.extensionMuted || video.muted || video.defaultMuted);
 
         if (currentlyMuted) {
             state.enforcingVolume = true;
             const targetVolume = Math.max(0, Math.min(1, typeof state.lastVolume === 'number' ? state.lastVolume : video.volume));
+            const hadNativeMute = Boolean(video.muted || video.defaultMuted);
+            const outputGainNode = state.outputGainNode;
+            const audioContext = state.audioContext;
+            const restoreOutputGain = hadNativeMute && outputGainNode && audioContext
+                ? outputGainNode.gain.value
+                : null;
             const enforceVolume = () => {
                 if (Math.abs(video.volume - targetVolume) > 0.01) {
                     video.volume = targetVolume;
                 }
             };
 
-            state.extensionMuted = false;
-            video.defaultMuted = false;
-            video.muted = false;
+            if (restoreOutputGain !== null) {
+                outputGainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            }
+
             enforceVolume();
+            state.extensionMuted = false;
+            if (video.defaultMuted) {
+                video.defaultMuted = false;
+            }
+            if (video.muted) {
+                video.muted = false;
+            }
 
             if (KS.syncNativeSliderTo) {
                 KS.syncNativeSliderTo(targetVolume * 100);
             }
-            emitVolumeSyncEvent();
 
             // Show feedback immediately instead of waiting for the enforcement window
             KS.showVolumeOverlay(targetVolume);
@@ -308,6 +313,9 @@
             const enforcementInterval = setInterval(enforceVolume, 50);
             setTimeout(() => {
                 clearInterval(enforcementInterval);
+                if (restoreOutputGain !== null && state.outputGainNode === outputGainNode && state.audioContext === audioContext) {
+                    outputGainNode.gain.setValueAtTime(restoreOutputGain, audioContext.currentTime);
+                }
                 state.enforcingVolume = false;
                 KS.showVolumeOverlay(targetVolume);
             }, 125);
@@ -317,13 +325,8 @@
             }
             state.extensionMuted = true;
             state.enforcingVolume = true;
-            video.volume = 0;
             video.defaultMuted = true;
             video.muted = true;
-            if (KS.syncNativeSliderTo) {
-                KS.syncNativeSliderTo(0);
-            }
-            emitVolumeSyncEvent();
             KS.showVolumeOverlay('Muted');
             setTimeout(() => {
                 state.enforcingVolume = false;

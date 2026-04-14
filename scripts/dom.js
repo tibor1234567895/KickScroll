@@ -35,6 +35,7 @@
       <span class="kvw-icon" aria-hidden="true">🔊</span>
       <span class="kvw-label">100%</span>
       <div class="kvw-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><span></span></div>
+      <span class="kvw-text" hidden></span>
     `;
 
     const speedOverlay = document.createElement('div');
@@ -88,6 +89,12 @@
                             <span class="ks-lbl">Boost Level</span>
                             <div class="ks-stepper">
                                 <button id="boost-down">−</button><span id="boost-value"></span><button id="boost-up">+</button>
+                            </div>
+                        </div>
+                        <div class="ks-setting-row sub-setting">
+                            <span class="ks-lbl">Volume Scroll Amount</span>
+                            <div class="ks-stepper">
+                                <button id="volume-step-down">−</button><span id="volume-step-value"></span><button id="volume-step-up">+</button>
                             </div>
                         </div>
 

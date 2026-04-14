@@ -33,6 +33,11 @@ video.kickscroll-controlled {
 #volume-overlay .kvw-label { font-weight: 600; letter-spacing: .2px; }
 #volume-overlay .kvw-bar { position: relative; flex: 1 1 auto; height: 6px; border-radius: 999px; background: rgba(255,255,255,.18); overflow: hidden; min-width: 80px; }
 #volume-overlay .kvw-bar > span { position: absolute; inset: 0 100% 0 0; background: rgba(255,255,255,.95); }
+#volume-overlay .kvw-text { font-weight: 600; letter-spacing: .2px; }
+#volume-overlay.text-only { justify-content: center; min-width: 0; max-width: 320px; }
+#volume-overlay.text-only .kvw-icon,
+#volume-overlay.text-only .kvw-label,
+#volume-overlay.text-only .kvw-bar { display: none; }
 
 
 /* Styles for the playback speed overlay */
